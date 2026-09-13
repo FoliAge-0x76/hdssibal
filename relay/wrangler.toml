@@ -1,0 +1,17 @@
+# 备选方案：把中转层部署到 Cloudflare Workers。
+# 主推方案是 Deno Deploy（见 README.md），它不需要本地安装任何 CLI。
+#
+#   cd relay
+#   npx wrangler secret put GITHUB_CLIENT_SECRET
+#   npx wrangler deploy
+#
+# 注意：GITHUB_CLIENT_SECRET 必须用 wrangler secret 设置，不要写进这个文件。
+
+name = "hdssibal-arena-relay"
+main = "src/relay.ts"
+compatibility_date = "2025-06-01"
+
+[vars]
+GITHUB_CLIENT_ID = ""
+# 逗号分隔，例如 "https://your-name.github.io,http://localhost:5173"
+ALLOWED_ORIGINS = ""

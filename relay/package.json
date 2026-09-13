@@ -1,0 +1,14 @@
+{
+  "name": "hdssibal-arena-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GitHub OAuth 中转层：持有 client_secret 并完成 authorization code → access token 的交换。",
+  "scripts": {
+    "dev": "node dev.mjs",
+    "test": "node --test test/relay.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.6"
+  }
+}

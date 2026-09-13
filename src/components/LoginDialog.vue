@@ -11,29 +11,26 @@ const emit = defineEmits<{ 'update:open': [boolean] }>()
 const auth = useAuthStore()
 const toast = useToast()
 
-const mode = ref<'device' | 'token'>('device')
+const mode = ref<'oauth' | 'token'>('oauth')
 const tokenInput = ref('')
 const busy = ref(false)
 const message = ref<string | null>(null)
-const polling = ref(false)
 
 watch(
   () => props.open,
   (open) => {
-    if (!open) {
-      if (polling.value) auth.cancelDeviceLogin()
-      resetBusy()
+    if (open) {
+      mode.value = auth.oauthAvailable ? 'oauth' : 'token'
+      // 回跳失败时 store 会在挂载前就写入 error（App 里那个 immediate watcher 会立刻打开本弹窗），
+      // 因此这里必须 immediate，否则同步失败的原因不会显示出来。
+      message.value = auth.error
+      busy.value = false
     } else {
-      message.value = null
-      mode.value = auth.deviceAvailable ? 'device' : 'token'
+      busy.value = false
     }
   },
+  { immediate: true },
 )
-
-function resetBusy(): void {
-  busy.value = false
-  polling.value = false
-}
 
 function close(): void {
   emit('update:open', false)
@@ -56,23 +53,14 @@ function messageFromError(error: unknown): string {
   return describeAuthError(error)
 }
 
-async function startDeviceLogin(): Promise<void> {
-  busy.value = true
+/** 一键登录会整页跳转到 GitHub，成功与否由回跳后的 bootstrap() 判定，这里只处理起跳失败。 */
+async function startOAuthLogin(): Promise<void> {
   message.value = null
-  try {
-    await auth.beginDeviceLogin()
-    polling.value = true
-    const ok = await auth.completeDeviceLogin()
-    if (ok) {
-      toast.success(`已登录为 ${auth.login}`)
-      close()
-      return
-    }
-    if (auth.error) message.value = auth.error
-  } catch (error) {
-    message.value = messageFromError(error)
-  } finally {
-    resetBusy()
+  busy.value = true
+  await auth.beginOAuthLogin()
+  if (auth.error) {
+    message.value = auth.error
+    busy.value = false
   }
 }
 
@@ -100,18 +88,17 @@ async function submitToken(): Promise<void> {
   <ModalDialog v-if="props.open" title="登录 / 注册" @close="close">
     <p class="muted small">
       站点使用你的 GitHub 账户作为身份标识，作品会以你的账户名义提交到仓库
-      <code>{{ repoRef.owner }}/{{ repoRef.repo }}</code>。密码永远不经过本站，令牌只保存在你自己的浏览器里。
+      <code>{{ repoRef.owner }}/{{ repoRef.repo }}</code>。密码永远不经过本站，授权结果也只保存在你自己的浏览器里。
     </p>
 
     <div class="row" style="margin: 14px 0 18px">
       <button
         class="btn btn--sm"
-        :class="{ 'btn--primary': mode === 'device' }"
+        :class="{ 'btn--primary': mode === 'oauth' }"
         type="button"
-        :disabled="!auth.deviceAvailable"
-        @click="mode = 'device'"
+        @click="mode = 'oauth'"
       >
-        设备码登录
+        GitHub 一键登录
       </button>
       <button
         class="btn btn--sm"
@@ -125,32 +112,24 @@ async function submitToken(): Promise<void> {
 
     <div v-if="message" class="alert alert--danger" style="margin-bottom: 14px">{{ message }}</div>
 
-    <template v-if="mode === 'device'">
-      <div v-if="!auth.deviceAvailable" class="alert alert--warning">
-        尚未配置 OAuth App 的 Client ID（<code>VITE_OAUTH_CLIENT_ID</code>），暂时无法使用设备码登录，请改用访问令牌。
+    <template v-if="mode === 'oauth'">
+      <div v-if="!auth.oauthAvailable" class="alert alert--warning">
+        尚未配置 GitHub 一键登录：需要同时提供 OAuth App 的
+        <code>VITE_OAUTH_CLIENT_ID</code> 与中转层地址 <code>VITE_OAUTH_RELAY_URL</code>
+        （见 <code>docs/SETUP.md</code> 第 5 节）。在此之前请改用访问令牌登录。
       </div>
       <template v-else>
         <p class="small muted">
-          点击下面的按钮后会得到一个 8 位用户码，在 GitHub 页面输入即可完成授权，全程无需在浏览器里粘贴令牌。
+          点击下面的按钮会跳转到 GitHub 授权页，确认后自动回到本站完成登录，无需手动创建或粘贴令牌。
+          本站只会获得「{{ describeScope() }}」范围的权限。
         </p>
-        <div v-if="auth.device" class="card" style="text-align: center">
-          <p class="small dim" style="margin: 0 0 6px">在 GitHub 输入此用户码</p>
-          <p class="mono" style="font-size: 26px; letter-spacing: 3px; margin: 0 0 12px">
-            {{ auth.device.userCode }}
-          </p>
-          <a class="btn btn--primary" :href="auth.device.verificationUri" target="_blank" rel="noopener">
-            打开 GitHub 授权页
-          </a>
-          <p v-if="polling" class="row small dim" style="justify-content: center; margin: 14px 0 0">
-            <span class="spinner"></span>
-            正在等待你在 GitHub 上确认…
-          </p>
-        </div>
+        <p class="small dim">
+          如果浏览器拦截了跳转，或授权后没有回到本站，请改用访问令牌登录。
+        </p>
         <div class="modal__actions">
-          <button v-if="polling" class="btn" type="button" @click="auth.cancelDeviceLogin()">取消</button>
-          <button v-else class="btn btn--primary" type="button" :disabled="busy" @click="startDeviceLogin">
+          <button class="btn btn--primary" type="button" :disabled="busy" @click="startOAuthLogin">
             <span v-if="busy" class="spinner"></span>
-            开始设备码登录
+            使用 GitHub 登录
           </button>
         </div>
       </template>

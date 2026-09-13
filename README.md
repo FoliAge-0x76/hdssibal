@@ -55,17 +55,22 @@ npm run dev                  # http://localhost:5173
 
 站点提供两种登录，UI 上是两个标签页：
 
-**A. 个人访问令牌（PAT）—— 默认可用、100% 可靠**
+**A. GitHub 一键登录（OAuth 授权码 + PKCE）—— 推荐，需要一次性配置**
 
-到 [github.com/settings/tokens](https://github.com/settings/tokens) 生成 **Fine-grained token**，仓库选本站仓库，权限给 `Contents: Read and write`（经典令牌则勾 `public_repo`，私有仓库勾 `repo`）。粘贴即可登录。
+用户点按钮 → 跳转 GitHub 授权页 → 确认后自动回跳完成登录。配置两步：
 
-**B. 设备码登录（Device Flow）—— 需要先注册 OAuth App**
+1. 注册一个 **OAuth App**（[github.com/settings/developers](https://github.com/settings/developers) → New OAuth App），**Authorization callback URL** 填生产站点地址（如 `https://<user>.github.io/<repo>/`），拿到 Client ID 填进 `VITE_OAUTH_CLIENT_ID`。
+2. 部署 [relay/](./relay) 里的中转层到 Deno Deploy，把它的域名填进 `VITE_OAUTH_RELAY_URL`，并在中转层里配置 `GITHUB_CLIENT_SECRET`。步骤见 [relay/README.md](./relay/README.md)。
 
-在 GitHub 上注册一个 **OAuth App**（无需 client secret，设备码流程只用到 Client ID），把 Client ID 写进 `VITE_OAUTH_CLIENT_ID`。用户在弹窗里看到 8 位用户码，去 `github.com/login/device` 输入并授权。
+为什么必须有中转层：GitHub 的 `login/oauth/access_token` 端点**不返回任何 CORS 响应头**（官方明确不支持预检请求），而且**必须**携带 `client_secret`——PKCE 只能加强安全性，不能替代 secret。纯静态站点放不下 secret，也不能直接调那个端点，所以「授权码换令牌」这一步由几十行的中转层代劳；`client_secret` 只存在于中转层，前端产物里没有任何密钥。
 
-已知限制：`github.com/login/*` 端点**不支持 CORS 预检（OPTIONS）**，所以设备码流程只在「简单请求」下可能通过，部分浏览器/网络环境会失败。失败时弹窗会引导改用 PAT——这是设计上的兜底，不是 bug。要彻底摆脱这个限制，见文末「升级路径」。
+**B. 个人访问令牌（PAT）—— 兜底方案，0 配置**
 
-令牌保存在 `localStorage`（键名 `hdssibal:token`），只在浏览器里调用 `api.github.com`，不经过任何第三方服务器。
+到 [github.com/settings/tokens](https://github.com/settings/tokens) 生成 **Fine-grained token**，仓库选本站仓库，权限给 `Contents: Read and write`（经典令牌则勾 `public_repo`，私有仓库勾 `repo`）。粘贴即可登录。只要 `api.github.com` 可达，这条路 100% 可用，因此中转层挂掉或没配置时也不会被锁在门外。
+
+登录结果保存在 `localStorage`（键名 `hdssibal:token`），之后只在浏览器里调用 `api.github.com`。中转层只在登录那一瞬间经手一次授权码，既不落库也拿不到令牌——它回给浏览器的令牌最终仍由你自己保存。
+
+> 早期版本实现过设备码（Device Flow），但实测它要调用的 `github.com/login/*` 端点同样不带 CORS 头，在浏览器里必然失败，因此已整体移除。
 
 ## 数据格式（`data/`）
 
@@ -117,14 +122,15 @@ public/events/<eventId>/cover.*# 活动封面
 - **写完要等一次构建**：别人提交的作品，公众要等 Actions 重新部署（约 30 秒–1 分钟）才能看到；作者本人在 `/me` 里是立刻可见的（那条路径直接读 API）。
 - **仓库体积**：所有封面都在仓库里，图片会累积。单张封面已在浏览器端压缩到 ≤ 2 MB（目标 600 KB，最长边 1600 px），GIF 不重编码，不接受 SVG 作为上传格式。
 - **匿名限流**：访客浏览已打包的数据，不消耗 API 限额；登录用户的操作走自己的令牌。
-- **设备码登录**受 CORS 限制，见上文。
+- **一键登录依赖中转层**：`relay/` 那份代码没部署、没配好 secret，或临时不可用的时候，一键登录会失败；此时弹窗会自动打开并说明原因，改用 PAT 即可。
 
 ## 升级路径
 
-1. **标准 OAuth Web Flow + PKCE**：需要能安全保存 `client_secret` 并代理 `github.com/login/oauth/access_token` 的中间层。用一个 Cloudflare Worker 或 Vercel/Netlify Function（几十行代码）就能把登录体验变成「点一下按钮」，同时保留纯静态前端。
+1. **把中转层换成你自己的域名**：`relay/src/relay.ts` 与 Cloudflare Workers 同构（`relay/wrangler.toml` 已备好），想换平台或加上自定义域名时直接搬代码即可。
 2. **提交走 PR**：把参赛者的写操作改成「fork → 提 PR」，配合分支保护与 `CODEOWNERS`，可以真正强制「只能改自己的作品」，并给管理员一个 review 关卡。
 3. **换掉 import.meta.glob**：数据量变大（>几千件作品）时，改成构建期生成索引（或分页 JSON），避免首屏 bundle 过大。
 4. **Git LFS / 外部图床**：封面增长到影响仓库大小时，把图片转移到 LFS 或对象存储，`cover` 字段已支持外部 URL。
+5. **用 GitHub App 取代 OAuth App**：需要更细的权限粒度（按仓库授权）时可切换，中转层只需改换令牌与校验身份两处。
 
 ## 推荐的开发辅助（插件 / 工具）
 

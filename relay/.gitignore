@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+deno.lock
+.env
+.env.local

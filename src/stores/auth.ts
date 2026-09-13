@@ -1,20 +1,30 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { deviceFlowEnabled } from '@/config'
+import { oauthEnabled, oauthRedirectUri, oauthRelayUrl } from '@/config'
 import {
   AuthError,
-  pollDeviceFlow,
-  startDeviceFlow,
-  type DeviceFlowStart,
+  buildAuthorizeUrl,
+  describeMissingScope,
+  exchangeCodeForToken,
 } from '@/services/auth'
 import { loadConfig } from '@/services/catalog'
 import { GitHubError, fetchIdentity, fetchRepoAccess, type RepoAccess } from '@/services/github'
+import { createCodeChallenge, createCodeVerifier, createState } from '@/utils/pkce'
+import { useToast } from '@/composables/useToast'
 import type { Identity } from '@/types'
 
 const TOKEN_STORAGE_KEY = 'hdssibal:token'
 const IDENTITY_STORAGE_KEY = 'hdssibal:identity'
+/** 跳转授权页前把 state/verifier 存进 sessionStorage，回跳时用它校验并完成换取。 */
+const OAUTH_PENDING_KEY = 'hdssibal:oauth:pending'
 
 export type AuthStatus = 'idle' | 'checking' | 'authenticating' | 'ready'
+
+interface PendingOAuth {
+  state: string
+  verifier: string
+  redirectUri: string
+}
 
 function readCachedIdentity(): Identity | null {
   try {
@@ -30,8 +40,13 @@ function writeCachedIdentity(identity: Identity | null): void {
   else localStorage.removeItem(IDENTITY_STORAGE_KEY)
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+function readPendingOAuth(): PendingOAuth | null {
+  try {
+    const raw = sessionStorage.getItem(OAUTH_PENDING_KEY)
+    return raw ? (JSON.parse(raw) as PendingOAuth) : null
+  } catch {
+    return null
+  }
 }
 
 export function describeAuthError(error: unknown): string {
@@ -42,15 +57,13 @@ export function describeAuthError(error: unknown): string {
 
 export const useAuthStore = defineStore('auth', () => {
   const config = loadConfig()
+  const toast = useToast()
 
   const token = ref<string | null>(localStorage.getItem(TOKEN_STORAGE_KEY))
   const identity = ref<Identity | null>(readCachedIdentity())
   const repoAccess = ref<RepoAccess | null>(null)
   const status = ref<AuthStatus>(token.value ? 'checking' : 'idle')
   const error = ref<string | null>(null)
-  const device = ref<DeviceFlowStart | null>(null)
-
-  let cancelPolling = false
 
   const isLoggedIn = computed(() => Boolean(token.value && identity.value))
   const login = computed(() => identity.value?.login ?? null)
@@ -60,7 +73,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (repoAccess.value?.admin) return true
     return config.admins.some((admin) => admin.toLowerCase() === identity.value!.login.toLowerCase())
   })
-  const deviceAvailable = computed(() => deviceFlowEnabled)
+  const oauthAvailable = computed(() => oauthEnabled)
 
   function persist(rawToken: string | null, me: Identity | null): void {
     token.value = rawToken
@@ -84,8 +97,8 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** 用访问令牌（PAT）登录。 */
-  async function loginWithToken(rawToken: string): Promise<boolean> {
+  /** 用访问令牌登录。一键登录与手动 PAT 最终都走这里。 */
+  async function loginWithToken(rawToken: string, grantedScopes: string | null = null): Promise<boolean> {
     const candidate = rawToken.trim()
     if (!candidate) {
       error.value = '请粘贴访问令牌。'
@@ -98,6 +111,8 @@ export const useAuthStore = defineStore('auth', () => {
       persist(candidate, me)
       await refreshAccess()
       status.value = 'ready'
+      const scopeIssue = describeMissingScope(grantedScopes)
+      if (scopeIssue) toast.error(scopeIssue)
       return true
     } catch (caught) {
       persist(null, null)
@@ -108,52 +123,87 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** 设备码登录第 1 步：拿到用户码，提示用户去 github.com/login/device 输入。 */
-  async function beginDeviceLogin(): Promise<DeviceFlowStart> {
+  /** 一键登录：生成 state 与 PKCE 参数后跳转到 GitHub 授权页。 */
+  async function beginOAuthLogin(): Promise<void> {
     error.value = null
-    cancelPolling = false
-    const started = await startDeviceFlow()
-    device.value = started
-    return started
+    if (!oauthAvailable.value) {
+      error.value = '本站尚未配置 GitHub 一键登录，请使用访问令牌登录。'
+      return
+    }
+    try {
+      const verifier = createCodeVerifier()
+      const state = createState()
+      const redirectUri = oauthRedirectUri()
+      const authorizeUrl = buildAuthorizeUrl({
+        redirectUri,
+        state,
+        codeChallenge: await createCodeChallenge(verifier),
+      })
+      // 用 sessionStorage 而非 localStorage：关掉标签页就作废，减少残留
+      sessionStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({ state, verifier, redirectUri }))
+      location.assign(authorizeUrl)
+    } catch (caught) {
+      error.value = describeAuthError(caught)
+    }
   }
 
-  /** 设备码登录第 2 步：轮询直到用户完成授权。 */
-  async function completeDeviceLogin(): Promise<boolean> {
-    const current = device.value
-    if (!current) return false
-    status.value = 'authenticating'
-    let intervalSeconds = Math.max(5, current.interval)
-    const deadline = Date.now() + current.expiresIn * 1000
+  /**
+   * 处理从 GitHub 回跳的授权码。命中并成功换取令牌时返回 true。
+   * 无论成败都会把 query 从地址栏清掉，避免刷新页面时重放已失效的授权码。
+   */
+  async function handleOAuthCallback(): Promise<boolean> {
+    const params = new URLSearchParams(location.search)
+    const code = params.get('code')
+    const returnedState = params.get('state')
+    const oauthError = params.get('error')
+    if (!code && !oauthError) return false
 
-    while (!cancelPolling && Date.now() < deadline && device.value) {
-      await sleep(intervalSeconds * 1000)
-      if (cancelPolling || !device.value) break
-      const result = await pollDeviceFlow(current.deviceCode)
-      if (result.status === 'token') {
-        device.value = null
-        return loginWithToken(result.token)
-      }
-      if (result.status === 'slow_down') intervalSeconds = result.interval
+    const pending = readPendingOAuth()
+    sessionStorage.removeItem(OAUTH_PENDING_KEY)
+    clearOAuthQuery()
+
+    if (oauthError) {
+      error.value =
+        oauthError === 'access_denied'
+          ? '已取消 GitHub 授权。'
+          : params.get('error_description') || 'GitHub 授权失败，请重试。'
+      status.value = 'idle'
+      return false
     }
 
-    device.value = null
-    status.value = isLoggedIn.value ? 'ready' : 'idle'
-    if (!isLoggedIn.value) error.value = '设备码已过期或登录已取消，请重新开始。'
-    return false
+    if (!pending || !returnedState || returnedState !== pending.state) {
+      error.value = '登录校验失败（state 不匹配），请重新登录。'
+      status.value = 'idle'
+      return false
+    }
+
+    status.value = 'authenticating'
+    try {
+      const result = await exchangeCodeForToken({
+        relayUrl: oauthRelayUrl,
+        code: code!,
+        codeVerifier: pending.verifier,
+        redirectUri: pending.redirectUri,
+      })
+      return await loginWithToken(result.token, result.scopes)
+    } catch (caught) {
+      status.value = 'idle'
+      error.value = describeAuthError(caught)
+      return false
+    }
   }
 
-  function cancelDeviceLogin(): void {
-    cancelPolling = true
-    device.value = null
-    status.value = isLoggedIn.value ? 'ready' : 'idle'
+  /** 去掉地址栏里的 code/state，保留 hash 路由。 */
+  function clearOAuthQuery(): void {
+    const url = `${location.origin}${location.pathname}${location.hash}`
+    history.replaceState(null, '', url)
   }
 
   function logout(): void {
-    cancelPolling = true
     persist(null, null)
     repoAccess.value = null
-    device.value = null
     error.value = null
+    sessionStorage.removeItem(OAUTH_PENDING_KEY)
     status.value = 'idle'
   }
 
@@ -182,24 +232,29 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** 应用启动入口：优先处理 OAuth 回跳，其次恢复既有会话。 */
+  async function bootstrap(): Promise<void> {
+    if (await handleOAuthCallback()) return
+    await restore()
+  }
+
   return {
     token,
     identity,
     repoAccess,
     status,
     error,
-    device,
     isLoggedIn,
     login,
     canWrite,
     isAdmin,
-    deviceAvailable,
+    oauthAvailable,
     loginWithToken,
-    beginDeviceLogin,
-    completeDeviceLogin,
-    cancelDeviceLogin,
+    beginOAuthLogin,
+    handleOAuthCallback,
     logout,
     restore,
+    bootstrap,
     refreshAccess,
     describeAuthError,
   }

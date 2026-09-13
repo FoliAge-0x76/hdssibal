@@ -43,7 +43,29 @@ export const oauthClientId: string = import.meta.env.VITE_OAUTH_CLIENT_ID?.trim(
 
 export const oauthScopes: string = import.meta.env.VITE_OAUTH_SCOPES?.trim() || 'public_repo'
 
-export const deviceFlowEnabled: boolean = oauthClientId.length > 0
+/**
+ * OAuth 中转层地址（relay/ 目录里那份代码部署后拿到的域名）。
+ * 因为 GitHub 的 token 端点不支持 CORS 预检、且必须携带 client_secret，
+ * 授权码→令牌的交换只能由这个中转层来完成。
+ */
+export const oauthRelayUrl: string = (import.meta.env.VITE_OAUTH_RELAY_URL?.trim() ?? '').replace(
+  /\/+$/,
+  '',
+)
+
+/** 一键登录需要 Client ID 与中转层地址同时就位。 */
+export const oauthEnabled: boolean = oauthClientId.length > 0 && oauthRelayUrl.length > 0
+
+/**
+ * OAuth 回调地址，必须与 OAuth App 里登记的 Authorization callback URL 完全一致。
+ * 站点走 hash 路由，所以真实路径只会是 `/` 或 `/<repo>/`；这里顺手把
+ * `/index.html` 归一化掉，避免用户从 index.html 进入时算出不一样的 redirect_uri。
+ */
+export function oauthRedirectUri(): string {
+  if (typeof location === 'undefined') return ''
+  const path = location.pathname.replace(/index\.html$/, '') || '/'
+  return `${location.origin}${path}`
+}
 
 /** 把 data/ 里记录的相对路径转成可访问的 URL。 */
 export function assetUrl(path?: string | null): string {

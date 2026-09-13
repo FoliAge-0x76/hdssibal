@@ -47,6 +47,15 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # 在 Settings → Secrets and variables → Actions → Variables 里配置。
+          # 未配置一键登录相关的两项时，站点仍可用，只是登录弹窗会引导使用访问令牌。
+          VITE_OAUTH_CLIENT_ID: ${{ vars.VITE_OAUTH_CLIENT_ID }}
+          VITE_OAUTH_RELAY_URL: ${{ vars.VITE_OAUTH_RELAY_URL }}
+          VITE_OAUTH_SCOPES: ${{ vars.VITE_OAUTH_SCOPES }}
+          # 仅使用自定义域名时需要（GitHub Pages 域名会自动推断仓库坐标）
+          VITE_GITHUB_OWNER: ${{ vars.VITE_GITHUB_OWNER }}
+          VITE_GITHUB_REPO: ${{ vars.VITE_GITHUB_REPO }}
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import AppHeader from '@/components/AppHeader.vue'
 import LoginDialog from '@/components/LoginDialog.vue'
 import ToastHost from '@/components/ToastHost.vue'
@@ -11,6 +11,15 @@ const auth = useAuthStore()
 const { loginDialogOpen } = useLoginDialog()
 
 const showConfigWarning = computed(() => !isRepoConfigured)
+
+// GitHub 一键登录回跳失败时（用户取消授权、中转层报错、state 不匹配等）自动弹出登录框说明原因
+watch(
+  () => auth.error,
+  (message) => {
+    if (message && !auth.isLoggedIn) loginDialogOpen.value = true
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -41,7 +50,4 @@ const showConfigWarning = computed(() => !isRepoConfigured)
 
   <LoginDialog v-model:open="loginDialogOpen" />
   <ToastHost />
-
-  <!-- 让模板里能用上，避免未使用告警 -->
-  <span v-if="auth.status === 'checking'" class="visually-hidden">正在校验登录状态…</span>
 </template>
