@@ -41,7 +41,7 @@ const repoLabel = computed(() => `${repoRef.owner}/${repoRef.repo}`)
             <a :href="repoWebUrl" target="_blank" rel="noopener"><code>{{ repoLabel }}</code></a>。因此你的账户需要是该仓库的协作者（Write 权限）：
             请把 GitHub 用户名发给管理员，由管理员在仓库的 <em>Settings → Collaborators</em> 中邀请你。
           </p>
-          <p v-if="auth.isLoggedIn && !auth.canWrite" class="small" style="margin: 10px 0 0; color: var(--warning)">
+          <p v-if="auth.isLoggedIn && auth.accessChecked && !auth.canWrite" class="small" style="margin: 10px 0 0; color: var(--warning)">
             检测到当前账户尚无写入权限，提交作品时会被 GitHub 拒绝。
           </p>
         </div>

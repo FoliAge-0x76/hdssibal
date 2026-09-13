@@ -106,7 +106,7 @@ function thumb(work: Work): string {
     </EmptyState>
 
     <template v-else>
-      <div v-if="auth.isLoggedIn && !auth.canWrite" class="alert alert--warning">
+      <div v-if="auth.isLoggedIn && auth.accessChecked && !auth.canWrite" class="alert alert--warning">
         当前账户对仓库
         <code>{{ auth.identity?.login }}</code> 没有写入权限。请联系管理员把你的账户加为该仓库的协作者，否则提交会被拒绝。
       </div>

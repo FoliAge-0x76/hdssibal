@@ -62,12 +62,15 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem(TOKEN_STORAGE_KEY))
   const identity = ref<Identity | null>(readCachedIdentity())
   const repoAccess = ref<RepoAccess | null>(null)
+  const accessStatus = ref<'idle' | 'loading' | 'ready'>('idle')
   const status = ref<AuthStatus>(token.value ? 'checking' : 'idle')
   const error = ref<string | null>(null)
 
   const isLoggedIn = computed(() => Boolean(token.value && identity.value))
   const login = computed(() => identity.value?.login ?? null)
   const canWrite = computed(() => repoAccess.value?.push === true)
+  /** 仓库权限是否已经问过 GitHub。未问过时 canWrite 为 false，但那不代表「没权限」。 */
+  const accessChecked = computed(() => accessStatus.value === 'ready')
   const isAdmin = computed(() => {
     if (!identity.value) return false
     if (repoAccess.value?.admin) return true
@@ -86,14 +89,18 @@ export const useAuthStore = defineStore('auth', () => {
   async function refreshAccess(): Promise<void> {
     if (!token.value) {
       repoAccess.value = null
+      accessStatus.value = 'ready'
       return
     }
+    accessStatus.value = 'loading'
     try {
       repoAccess.value = await fetchRepoAccess(token.value)
     } catch (caught) {
       // 私有仓库且无权限时会 404，此时只保留最基本的可用状态
       repoAccess.value = null
       if (caught instanceof GitHubError && caught.status !== 404) throw caught
+    } finally {
+      accessStatus.value = 'ready'
     }
   }
 
@@ -247,6 +254,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     login,
     canWrite,
+    accessChecked,
     isAdmin,
     oauthAvailable,
     loginWithToken,

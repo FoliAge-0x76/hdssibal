@@ -52,7 +52,7 @@ function goBack(): void {
     </EmptyState>
 
     <div v-else class="submit-wrap">
-      <div v-if="!auth.canWrite" class="alert alert--warning">
+      <div v-if="auth.accessChecked && !auth.canWrite" class="alert alert--warning">
         当前账户对仓库没有写入权限，投稿会失败。请联系管理员把你的账号加入协作者，或改用具备写入权限的账户登录。
       </div>
       <div v-if="!ongoingCount" class="alert alert--info">
