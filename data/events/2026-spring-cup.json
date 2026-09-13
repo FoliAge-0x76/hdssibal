@@ -1,0 +1,14 @@
+{
+  "id": "2026-spring-cup",
+  "title": "示例活动：春季杯（已结束）",
+  "subtitle": "一个已经截止的演示活动，用来验证「只有进行中的活动才能投稿」。",
+  "description": "这个活动的状态是 `closed`，截止时间也已经过去，因此在投稿页的活动列表里不会出现，活动页也不会显示投稿按钮。\n\n它同时也说明：活动结束之后，已经提交的作品仍然会保留在活动页上。\n",
+  "cover": "events/2026-spring-cup/cover.svg",
+  "status": "closed",
+  "startAt": "2026-03-01T00:00:00.000Z",
+  "endAt": "2026-05-31T15:59:59.000Z",
+  "acceptSubmissions": true,
+  "createdBy": "your-github-username",
+  "createdAt": "2026-03-01T00:00:00.000Z",
+  "updatedAt": "2026-06-01T00:00:00.000Z"
+}

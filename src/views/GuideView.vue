@@ -48,9 +48,17 @@ const repoLabel = computed(() => `${repoRef.owner}/${repoRef.repo}`)
 
         <div class="card">
           <h3>3. 提交作品</h3>
+          <p class="muted small" style="margin: 0 0 8px">
+            打开 <router-link to="/submit">投稿页</router-link>，或从活动页点「投稿至此活动」进入。三样东西缺一不可：
+          </p>
+          <ul class="muted small" style="margin: 0 0 8px; padding-left: 20px">
+            <li><strong>一个正在进行的活动</strong>：只能勾选已开始且未截止的活动，未开始、已截止的活动不会出现在列表里。</li>
+            <li><strong>一张封面图</strong>：文件名不限，PNG / JPEG / WebP / GIF 均可，会自动压缩到最长边 1600px，避免仓库体积膨胀。</li>
+            <li><strong>一个谱面下载链接</strong>：http/https 地址，网盘分享、直链或 GitHub Release 都可以。</li>
+          </ul>
           <p class="muted small" style="margin: 0">
-            在「我的作品」页面点击「提交新作品」，填写标题、简介与详情，上传一张封面图即可。
-            封面会自动压缩到最长边 1600px，避免仓库体积膨胀。之后你可以随时回来修改或删除自己的作品。
+            表单底部的「投稿条件」会实时显示还缺哪一项，全部满足后「提交作品」按钮才会亮起。提交后可以随时回到
+            <router-link to="/me">我的作品</router-link>修改或删除自己的作品。
           </p>
         </div>
 
@@ -91,6 +99,13 @@ const repoLabel = computed(() => `${repoRef.owner}/${repoRef.repo}`)
           <p class="muted small" style="margin: 0">
             这就是「仓库即数据库」的设计：作品数据是 <code>data/works/*.json</code>，封面是
             <code>public/works/*</code>，每次投稿都是一次 Git 提交，天然具备版本历史与回滚能力。
+          </p>
+        </div>
+        <div class="card">
+          <h3>谱面文件放在哪里？</h3>
+          <p class="muted small" style="margin: 0">
+            谱面本身不进仓库，站点只保存你填写的下载链接（写在作品的 <code>chart.url</code> 字段里）。
+            这样可以避开仓库大小限制，也方便你随时更新谱面文件而不用重新投稿；链接失效时记得回来更新，否则观众点开会看到失效页面。
           </p>
         </div>
         <div class="card">

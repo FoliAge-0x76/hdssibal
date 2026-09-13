@@ -23,9 +23,13 @@ const avatar = computed(() => avatarOf(props.work.author, 40))
     <div class="work-card__body">
       <h3 class="work-card__title">{{ props.work.title }}</h3>
       <p v-if="props.work.summary" class="work-card__summary">{{ props.work.summary }}</p>
+      <p v-else-if="props.work.chart?.artist" class="work-card__summary dim">曲师：{{ props.work.chart.artist }}</p>
 
       <div class="row small dim" style="gap: 6px">
         <span v-if="props.showEvent" class="tag">{{ catalog.eventTitle(props.work.eventId) }}</span>
+        <span v-for="level in (props.work.chart?.difficulties ?? []).slice(0, 2)" :key="level" class="tag tag--accent">
+          {{ level }}
+        </span>
         <span v-for="tag in (props.work.tags ?? []).slice(0, 2)" :key="tag" class="tag">{{ tag }}</span>
       </div>
 

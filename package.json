@@ -9,6 +9,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
+    "test:unit": "node --test test/submission.test.mjs",
     "validate:data": "node scripts/validate-data.mjs"
   },
   "dependencies": {

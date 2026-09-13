@@ -14,12 +14,12 @@
 | 需求 | 实现位置 |
 | --- | --- |
 | ① GitHub 账户登录 | [LoginDialog.vue](./src/components/LoginDialog.vue)、[stores/auth.ts](./src/stores/auth.ts)、[services/auth.ts](./src/services/auth.ts) |
-| ② 上传 / 修改自己的作品 | [MyWorksView.vue](./src/views/MyWorksView.vue)、[components/WorkForm.vue](./src/components/WorkForm.vue)、[services/works.ts](./src/services/works.ts)、[services/images.ts](./src/services/images.ts) |
+| ② 上传 / 修改自己的作品（封面图 + 谱面下载链接） | [SubmitView.vue](./src/views/SubmitView.vue)、[components/WorkForm.vue](./src/components/WorkForm.vue)、[services/works.ts](./src/services/works.ts)、[services/images.ts](./src/services/images.ts) |
 | ③ 主页显示最近活动 | [HomeView.vue](./src/views/HomeView.vue)、[components/ActivityFeed.vue](./src/components/ActivityFeed.vue)、[utils/activity.ts](./src/utils/activity.ts) |
 | ④ 活动页展示作品（封面 + 标题 + 作者） | [EventDetailView.vue](./src/views/EventDetailView.vue)、[components/WorkCard.vue](./src/components/WorkCard.vue) |
 | ⑤ 管理员添加活动 / 删除作品 | [AdminView.vue](./src/views/AdminView.vue)、[services/events.ts](./src/services/events.ts) |
 
-页面清单：`/` 首页、`/events` 活动列表、`/events/:id` 活动详情、`/works/:id` 作品详情、`/me` 我的作品、`/admin` 管理后台、`/guide` 参与指南（hash 路由，`#/events` 这种形式）。
+页面清单：`/` 首页、`/events` 活动列表、`/events/:id` 活动详情、`/submit` 投稿、`/works/:id` 作品详情、`/me` 我的作品、`/admin` 管理后台、`/guide` 参与指南（hash 路由，`#/events` 这种形式）。
 
 ## 快速开始
 
@@ -37,6 +37,7 @@ npm run dev                  # http://localhost:5173
 | `npm run build` | 类型检查 + 生产构建（产物在 `dist/`） |
 | `npm run preview` | 预览生产构建 |
 | `npm run typecheck` | 只跑 `vue-tsc` |
+| `npm run test:unit` | 投稿规则纯函数单测（`node --test`） |
 | `npm run validate:data` | 校验 `data/` 下的 JSON 结构与引用（CI 会跑） |
 
 > ⚠️ 本项目固定使用 **TypeScript 5.9**。`vue-tsc` 目前还不兼容 TypeScript 7（`tsgo` 不再导出 `./lib/tsc`），升级 `typescript` 会导致 `npm run typecheck` 直接崩溃。
@@ -93,6 +94,13 @@ public/events/<eventId>/cover.*# 活动封面
   "summary": "一句话简介",
   "description": "Markdown 正文（不解析原始 HTML）",
   "cover": "works/demo-work-f3k9/cover.webp",
+  "chart": {
+    "url": "https://example.com/your-chart.zip",
+    "artist": "曲师（可选）",
+    "designer": "谱师（可选）",
+    "bpm": "175",
+    "difficulties": ["BASIC 4", "EXPERT 11"]
+  },
   "tags": ["像素画"],
   "links": [{ "label": "GitHub", "url": "https://github.com" }],
   "author": { "login": "octocat", "id": 583231, "name": "The Octocat" },
@@ -103,9 +111,21 @@ public/events/<eventId>/cover.*# 活动封面
 
 活动：`status` 取 `draft | upcoming | open | closed | archived`，`acceptSubmissions` 控制是否开放投稿。
 
-`npm run validate:data` 会检查：JSON 可解析、id 与文件名一致、`eventId` 外键存在、封面文件存在、封面路径前缀合法、时间是 ISO 8601、`status` 是合法枚举。
+**投稿规则**（`/submit` 页面的表单强制，服务端同样会再校验一次）：
 
-新增作品**不需要手写 JSON**：登录后到 `/me` 上传封面、填表单即可，前端会自动生成文件、压缩封面并提交到仓库。
+| 必填项 | 规则 |
+| --- | --- |
+| 投稿活动 | 复选框，只列出**正在进行中**的活动（`status = open` + `acceptSubmissions = true` + 当前时间落在 `startAt`/`endAt` 之间，见 [utils/eventWindow.ts](./src/utils/eventWindow.ts)），一次只能选一个 |
+| 封面图 | 任意文件名，PNG / JPEG / WebP / GIF，浏览器端压缩后写入 `public/works/<id>/cover.<ext>` |
+| 谱面下载链接 | 必须是 `http://` 或 `https://` 地址，写进 `chart.url`；谱面文件本身**不进仓库** |
+
+三项齐全后「提交作品」按钮才会启用（表单底部的「投稿条件」清单实时显示还缺哪一项）。`chart` 的其它字段（曲师 / 谱师 / BPM / 难度）与简介、标签、附加链接都在「可选信息」折叠区里。
+
+所有用户填写的链接（`chart.url`、`links[].url`）在写入与渲染两侧都会过一遍 [utils/url.ts](./src/utils/url.ts) 的 http(s) 白名单——数据文件是协作者可以直接手改的，不加白名单就等于允许 `javascript:` 形式的存储型 XSS。
+
+`npm run validate:data` 会检查：JSON 可解析、id 与文件名一致、`eventId` 外键存在、封面文件存在、封面路径前缀合法、`chart.url` 与 `links[].url` 是合法 http(s) 地址、时间是 ISO 8601、`status` 是合法枚举。
+
+新增作品**不需要手写 JSON**：登录后打开 `/submit`（或在「我的作品」页点「提交新作品」）上传封面、填表单即可，前端会自动生成文件、压缩封面并提交到仓库。
 
 ## 权限模型
 
@@ -120,7 +140,7 @@ public/events/<eventId>/cover.*# 活动封面
 ## 已知限制
 
 - **写完要等一次构建**：别人提交的作品，公众要等 Actions 重新部署（约 30 秒–1 分钟）才能看到；作者本人在 `/me` 里是立刻可见的（那条路径直接读 API）。
-- **仓库体积**：所有封面都在仓库里，图片会累积。单张封面已在浏览器端压缩到 ≤ 2 MB（目标 600 KB，最长边 1600 px），GIF 不重编码，不接受 SVG 作为上传格式。
+- **仓库体积**：所有封面都在仓库里，图片会累积。单张封面已在浏览器端压缩到 ≤ 2 MB（目标 600 KB，最长边 1600 px），GIF 不重编码，不接受 SVG 作为上传格式。谱面文件本身**不进仓库**（投稿只保存下载链接），所以体积增长只来自封面。
 - **匿名限流**：访客浏览已打包的数据，不消耗 API 限额；登录用户的操作走自己的令牌。
 - **一键登录依赖中转层**：`relay/` 那份代码没部署、没配好 secret，或临时不可用的时候，一键登录会失败；此时弹窗会自动打开并说明原因，改用 PAT 即可。
 
@@ -163,6 +183,7 @@ public/events/<eventId>/cover.*# 活动封面
 ├─ data/                     # 数据库：站点配置、活动、作品
 ├─ public/                   # 封面等静态资源（原样复制进产物）
 ├─ scripts/validate-data.mjs # 零依赖的数据校验脚本
+├─ test/submission.test.mjs  # 投稿规则纯函数单测（node --test）
 ├─ src/
 │  ├─ components/            # WorkCard、EventCard、表单、弹窗……
 │  ├─ composables/           # useToast、useLoginDialog
@@ -170,7 +191,7 @@ public/events/<eventId>/cover.*# 活动封面
 │  ├─ services/              # github / auth / works / events / images / catalog / markdown
 │  ├─ stores/                # Pinia：auth、catalog
 │  ├─ styles/main.css        # 设计系统（暗色）
-│  ├─ utils/                 # 格式化、编码、身份、动态
-│  └─ views/                 # 七个页面
+│  ├─ utils/                 # 格式化、编码、身份、活动窗口、URL 白名单
+│  └─ views/                 # 八个页面
 └─ .github/workflows/        # 部署 + 数据校验
 ```

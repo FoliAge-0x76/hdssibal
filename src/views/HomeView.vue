@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import ModalDialog from '@/components/ModalDialog.vue'
-import WorkForm from '@/components/WorkForm.vue'
+import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import WorkCard from '@/components/WorkCard.vue'
 import EventCard from '@/components/EventCard.vue'
 import ActivityFeed from '@/components/ActivityFeed.vue'
@@ -10,44 +9,45 @@ import { useLoginDialog } from '@/composables/useLoginDialog'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { useCatalogStore } from '@/stores/catalog'
-import type { Work } from '@/types'
+import { isEventOngoing } from '@/utils/eventWindow'
 
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 const toast = useToast()
+const router = useRouter()
 const { openLogin } = useLoginDialog()
-
-const submitting = ref(false)
 
 const site = computed(() => catalog.config.site)
 
+const ongoingEvents = computed(() =>
+  catalog.events
+    .filter((event) => isEventOngoing(event))
+    .sort((a, b) => (a.startAt ?? '').localeCompare(b.startAt ?? '')),
+)
+
 const activeEvents = computed(() => {
+  if (ongoingEvents.value.length) return ongoingEvents.value
   const now = Date.now()
   return catalog.events
-    .filter((event) => event.status === 'open' || event.status === 'upcoming')
-    .filter((event) => !event.endAt || new Date(event.endAt).getTime() >= now)
+    .filter((event) => event.status === 'upcoming')
+    .filter((event) => !event.endAt || Date.parse(event.endAt) >= now)
     .sort((a, b) => (a.startAt ?? '').localeCompare(b.startAt ?? ''))
 })
 
-const latestWorks = computed(() => catalog.works.slice(0, 8))
+const activeEventsTitle = computed(() => (ongoingEvents.value.length ? '进行中的活动' : '即将开始的活动'))
 
-const submitTarget = computed(() => catalog.defaultEvent)
+const latestWorks = computed(() => catalog.works.slice(0, 8))
 
 function startSubmit(): void {
   if (!auth.isLoggedIn) {
     openLogin()
     return
   }
-  if (!submitTarget.value) {
-    toast.info('目前还没有开放投稿的活动。')
+  if (!catalog.defaultEvent) {
+    toast.info('目前没有正在进行中的活动，暂时无法投稿。')
     return
   }
-  submitting.value = true
-}
-
-function onSaved(work: Work): void {
-  catalog.mergeLiveWorks([work])
-  submitting.value = false
+  void router.push({ name: 'submit' })
 }
 </script>
 
@@ -60,13 +60,12 @@ function onSaved(work: Work): void {
         <button class="btn btn--primary" type="button" @click="startSubmit">提交作品</button>
         <router-link class="btn" to="/events">浏览活动</router-link>
         <router-link v-if="auth.isAdmin" class="btn" to="/admin">管理后台</router-link>
-      </div>
-    </section>
+      </div>    </section>
 
     <div class="two-col">
       <section class="section">
         <div class="section__head">
-          <h2>进行中的活动</h2>
+          <h2>{{ activeEventsTitle }}</h2>
           <router-link class="small" to="/events">全部活动 →</router-link>
         </div>
 
@@ -103,8 +102,4 @@ function onSaved(work: Work): void {
       </div>
     </section>
   </div>
-
-  <ModalDialog v-if="submitting" title="提交作品" wide @close="submitting = false">
-    <WorkForm :default-event-id="submitTarget?.id" @saved="onSaved" @cancel="submitting = false" />
-  </ModalDialog>
 </template>

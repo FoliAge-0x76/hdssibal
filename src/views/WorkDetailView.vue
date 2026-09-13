@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useCatalogStore } from '@/stores/catalog'
 import { avatarOf } from '@/utils/identity'
 import { formatDateTime } from '@/utils/format'
+import { safeHref } from '@/utils/url'
 
 const props = defineProps<{ id: string }>()
 
@@ -29,6 +30,7 @@ const work = computed(() => catalog.workById(props.id))
 const cover = computed(() => assetUrl(work.value?.cover))
 const description = computed(() => renderMarkdown(work.value?.description))
 const avatar = computed(() => avatarOf(work.value?.author, 80))
+const chartUrl = computed(() => safeHref(work.value?.chart?.url))
 
 const isOwner = computed(
   () => Boolean(work.value && auth.login && work.value.author.login.toLowerCase() === auth.login!.toLowerCase()),
@@ -68,7 +70,7 @@ async function confirmDelete(): Promise<void> {
           <h1>{{ work.title }}</h1>
           <p v-if="work.summary" class="muted">{{ work.summary }}</p>
 
-          <div class="row" style="margin: 14px 0 22px">
+          <div class="row" style="margin: 14px 0 18px">
             <img v-if="avatar" :src="avatar" alt="" style="width: 32px; height: 32px; border-radius: 50%" />
             <a :href="`https://github.com/${work.author.login}`" target="_blank" rel="noopener">
               {{ work.author.name ?? work.author.login }}
@@ -81,6 +83,11 @@ async function confirmDelete(): Promise<void> {
             </button>
           </div>
 
+          <div v-if="chartUrl" class="chart-cta">
+            <a class="btn btn--primary" :href="chartUrl" target="_blank" rel="noopener noreferrer">⬇ 下载谱面</a>
+            <span class="small dim">下载后按谱面说明导入你的客户端</span>
+          </div>
+
           <img v-if="cover" :src="cover" :alt="`${work.title} 封面`" class="cover-preview" style="margin-bottom: 24px" />
 
           <div v-if="work.description" class="card markdown" v-html="description"></div>
@@ -88,7 +95,29 @@ async function confirmDelete(): Promise<void> {
         </div>
 
         <aside class="card">
-          <h3 style="font-size: 15px">作品信息</h3>
+          <h3 style="font-size: 15px">曲目信息</h3>
+          <div class="stack" style="gap: 6px; margin-bottom: 14px">
+            <p v-if="work.chart?.artist" class="small" style="margin: 0">曲师：{{ work.chart.artist }}</p>
+            <p v-if="work.chart?.designer" class="small" style="margin: 0">谱师：{{ work.chart.designer }}</p>
+            <p v-if="work.chart?.bpm" class="small" style="margin: 0">BPM：{{ work.chart.bpm }}</p>
+            <div v-if="work.chart?.difficulties?.length" class="row" style="gap: 6px">
+              <span v-for="level in work.chart.difficulties" :key="level" class="tag tag--accent">{{ level }}</span>
+            </div>
+          </div>
+
+          <a
+            v-if="chartUrl"
+            class="btn btn--sm"
+            :href="chartUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="width: 100%"
+          >
+            ⬇ 下载谱面
+          </a>
+          <p v-else class="small dim">该作品没有填写谱面下载链接。</p>
+
+          <h3 style="font-size: 15px; margin-top: 18px">作品信息</h3>
           <p class="small muted" style="margin: 0 0 10px">
             提交于 {{ formatDateTime(work.createdAt) }}
             <template v-if="work.updatedAt !== work.createdAt">
@@ -103,9 +132,10 @@ async function confirmDelete(): Promise<void> {
           <div v-if="work.links?.length" class="stack">
             <a
               v-for="link in work.links"
+              v-show="safeHref(link.url)"
               :key="link.url"
               class="btn btn--sm"
-              :href="link.url"
+              :href="safeHref(link.url)"
               target="_blank"
               rel="noopener noreferrer"
             >

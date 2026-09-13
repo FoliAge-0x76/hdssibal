@@ -11,6 +11,20 @@ export interface WorkLink {
   url: string
 }
 
+/** 谱面来源：外部下载链接 + 曲目信息。 */
+export interface ChartSource {
+  /** 谱面下载链接（必填，只允许 http/https）。 */
+  url: string
+  /** 曲师。 */
+  artist?: string
+  /** 谱师。 */
+  designer?: string
+  /** BPM，保留原始写法，例如 "175" / "120-240"。 */
+  bpm?: string
+  /** 各难度等级，例如 ["Easy 3", "Master 12+"]。 */
+  difficulties?: string[]
+}
+
 /** data/works/<id>.json */
 export interface Work {
   id: string
@@ -21,6 +35,8 @@ export interface Work {
   description?: string
   /** 相对 public/ 的封面路径，例如 works/abc/cover.png；也允许外部图片 URL。 */
   cover?: string
+  /** 谱面下载链接与曲目信息。 */
+  chart?: ChartSource
   tags?: string[]
   links?: WorkLink[]
   author: AuthorRef

@@ -11,6 +11,7 @@ import { deleteWork } from '@/services/works'
 import { useAuthStore } from '@/stores/auth'
 import { useCatalogStore } from '@/stores/catalog'
 import type { EventItem, Work } from '@/types'
+import { isEventOngoing } from '@/utils/eventWindow'
 import { formatDateTime } from '@/utils/format'
 
 const auth = useAuthStore()
@@ -131,7 +132,7 @@ function onEventSaved(event: EventItem): void {
             <div style="flex: 1; min-width: 0">
               <div class="row" style="margin-bottom: 4px">
                 <span class="badge" :class="`badge--${event.status}`">{{ EVENT_STATUS_LABELS[event.status] }}</span>
-                <span v-if="event.acceptSubmissions" class="badge badge--open">开放投稿</span>
+                <span v-if="isEventOngoing(event)" class="badge badge--open">开放投稿</span>
                 <span class="dim small">{{ catalog.worksOfEvent(event.id).length }} 件作品</span>
               </div>
               <h3 style="margin: 0 0 2px">

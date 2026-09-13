@@ -36,6 +36,15 @@ function isIsoDate(value) {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value))
 }
 
+function isHttpUrl(value) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 function checkAsset(file, assetPath) {
   if (!assetPath) return
   if (/^(https?:)?\/\//i.test(assetPath)) return
@@ -115,6 +124,20 @@ for (const name of listJson(join(dataDir, 'works'))) {
   if (!isIsoDate(work.createdAt)) fail(file, 'createdAt 必须是 ISO 时间字符串')
   if (!isIsoDate(work.updatedAt)) fail(file, 'updatedAt 必须是 ISO 时间字符串')
   if (work.tags !== undefined && !Array.isArray(work.tags)) fail(file, 'tags 必须是数组')
+  if (work.chart !== undefined) {
+    if (!work.chart || typeof work.chart !== 'object') {
+      fail(file, 'chart 必须是对象')
+    } else {
+      if (typeof work.chart.url !== 'string' || !work.chart.url.trim()) {
+        fail(file, 'chart.url 必须是非空字符串')
+      } else if (!isHttpUrl(work.chart.url)) {
+        fail(file, `chart.url 必须是 http/https 地址，当前为 "${work.chart.url}"`)
+      }
+      if (work.chart.difficulties !== undefined && !Array.isArray(work.chart.difficulties)) {
+        fail(file, 'chart.difficulties 必须是数组')
+      }
+    }
+  }
   if (work.links !== undefined) {
     if (!Array.isArray(work.links)) {
       fail(file, 'links 必须是数组')
@@ -122,6 +145,8 @@ for (const name of listJson(join(dataDir, 'works'))) {
       work.links.forEach((link, index) => {
         if (!link || typeof link.url !== 'string' || !link.url.trim()) {
           fail(file, `links[${index}].url 必须是非空字符串`)
+        } else if (!isHttpUrl(link.url)) {
+          fail(file, `links[${index}].url 必须是 http/https 地址，当前为 "${link.url}"`)
         }
       })
     }

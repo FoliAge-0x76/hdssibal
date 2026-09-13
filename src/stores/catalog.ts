@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { loadConfig, loadEvents, loadWorks } from '@/services/catalog'
 import type { EventItem, Work } from '@/types'
 import { buildActivity } from '@/utils/activity'
+import { isEventOngoing } from '@/utils/eventWindow'
 
 export const useCatalogStore = defineStore('catalog', () => {
   const config = ref(loadConfig())
@@ -39,12 +40,11 @@ export const useCatalogStore = defineStore('catalog', () => {
     return eventById(id)?.title ?? id
   }
 
-  /** 投稿入口默认选中的活动：优先“征集中”，其次“即将开始”。 */
+  /** 投稿入口默认选中的活动：第一个仍在进行中的活动。 */
   const defaultEvent = computed<EventItem | undefined>(() => {
-    const now = Date.now()
-    const open = events.value.filter((event) => event.acceptSubmissions && event.status === 'open')
-    const started = open.find((event) => !event.startAt || new Date(event.startAt).getTime() <= now)
-    return started ?? open[0] ?? events.value.find((event) => event.status === 'open') ?? events.value[0]
+    return events.value
+      .filter((event) => isEventOngoing(event))
+      .sort((a, b) => (a.startAt ?? '').localeCompare(b.startAt ?? ''))[0]
   })
 
   /** 用刚提交的作品补齐构建产物里还没有的数据。 */

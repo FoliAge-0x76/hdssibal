@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -12,16 +13,17 @@ import { useAuthStore } from '@/stores/auth'
 import { useCatalogStore } from '@/stores/catalog'
 import type { Work } from '@/types'
 import { formatDateTime } from '@/utils/format'
+import { safeHref } from '@/utils/url'
 
 const auth = useAuthStore()
 const catalog = useCatalogStore()
 const toast = useToast()
+const router = useRouter()
 const { openLogin } = useLoginDialog()
 
 const liveWorks = ref<Work[] | null>(null)
 const loading = ref(false)
 const editing = ref<Work | null>(null)
-const creating = ref(false)
 const deleteTarget = ref<Work | null>(null)
 const deleting = ref(false)
 const loadError = ref<string | null>(null)
@@ -62,7 +64,10 @@ function onSaved(work: Work): void {
   liveWorks.value = list
   catalog.mergeLiveWorks([work])
   editing.value = null
-  creating.value = false
+}
+
+function startSubmit(): void {
+  void router.push({ name: 'submit' })
 }
 
 async function confirmDelete(): Promise<void> {
@@ -109,7 +114,7 @@ function thumb(work: Work): string {
       <div v-if="loadError" class="alert alert--danger">{{ loadError }}</div>
 
       <div class="row" style="margin-bottom: 20px">
-        <button class="btn btn--primary" type="button" @click="creating = true">+ 提交新作品</button>
+        <button class="btn btn--primary" type="button" @click="startSubmit">+ 提交新作品</button>
         <button class="btn" type="button" :disabled="loading" @click="refresh">
           <span v-if="loading" class="spinner"></span>
           刷新
@@ -119,7 +124,7 @@ function thumb(work: Work): string {
       </div>
 
       <EmptyState v-if="!myWorks.length" title="你还没有作品" description="点击「提交新作品」开始你的第一次投稿。">
-        <button class="btn btn--primary btn--sm" type="button" @click="creating = true">提交新作品</button>
+        <button class="btn btn--primary btn--sm" type="button" @click="startSubmit">提交新作品</button>
       </EmptyState>
 
       <div v-else class="stack">
@@ -142,6 +147,9 @@ function thumb(work: Work): string {
             <p class="small dim" style="margin: 0">
               活动：{{ catalog.eventTitle(work.eventId) }} · 更新时间 {{ formatDateTime(work.updatedAt) }}
             </p>
+            <p v-if="work.chart?.url" class="small dim" style="margin: 0; word-break: break-all">
+              谱面链接：<a :href="safeHref(work.chart.url)" target="_blank" rel="noopener noreferrer">{{ work.chart.url }}</a>
+            </p>
           </div>
 
           <div class="row">
@@ -152,10 +160,6 @@ function thumb(work: Work): string {
       </div>
     </template>
   </div>
-
-  <ModalDialog v-if="creating" title="提交新作品" wide @close="creating = false">
-    <WorkForm :default-event-id="catalog.defaultEvent?.id" @saved="onSaved" @cancel="creating = false" />
-  </ModalDialog>
 
   <ModalDialog v-if="editing" title="修改作品" wide @close="editing = null">
     <WorkForm :work="editing" @saved="onSaved" @cancel="editing = null" />

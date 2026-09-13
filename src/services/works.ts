@@ -1,5 +1,6 @@
-import type { Identity, Work, WorkLink } from '@/types'
+import type { ChartSource, Identity, Work, WorkLink } from '@/types'
 import { randomSuffix, slugify } from '@/utils/format'
+import { describeUrlProblem, normalizeHttpUrl } from '@/utils/url'
 import type { PreparedImage } from './images'
 import { GitHubError, listDirectory, putBase64File, readJsonFile, removeFile, writeFile } from './github'
 
@@ -10,6 +11,16 @@ export interface WorkDraft {
   description: string
   tags: string[]
   links: WorkLink[]
+  /** 谱面下载链接（必填）。 */
+  chartUrl: string
+  /** 曲师。 */
+  chartArtist: string
+  /** 谱师。 */
+  chartDesigner: string
+  /** BPM。 */
+  chartBpm: string
+  /** 难度等级，用逗号或斜杠分隔。 */
+  chartDifficulties: string
 }
 
 export interface SaveWorkOptions {
@@ -42,10 +53,52 @@ function normalizeLinks(links: WorkLink[]): WorkLink[] {
   return links
     .map((link) => ({ label: link.label.trim(), url: link.url.trim() }))
     .filter((link) => link.url.length > 0)
+    .map((link, index) => {
+      const url = normalizeHttpUrl(link.url)
+      if (!url) {
+        throw new Error(`第 ${index + 1} 个附加链接无效：${describeUrlProblem(link.url)}`)
+      }
+      return { label: link.label, url }
+    })
 }
 
 function normalizeTags(tags: string[]): string[] {
   return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)))
+}
+
+/** 按逗号 / 顿号 / 斜杠拆分多值输入，用于难度等级。 */
+function splitList(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,，、/|]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
+function buildChart(draft: WorkDraft): ChartSource {
+  const url = normalizeHttpUrl(draft.chartUrl)
+  if (!url) {
+    throw new Error(describeUrlProblem(draft.chartUrl) ?? '请填写有效的谱面下载链接。')
+  }
+
+  const chart: ChartSource = { url }
+
+  const artist = draft.chartArtist.trim()
+  if (artist) chart.artist = artist
+
+  const designer = draft.chartDesigner.trim()
+  if (designer) chart.designer = designer
+
+  const bpm = draft.chartBpm.trim()
+  if (bpm) chart.bpm = bpm
+
+  const difficulties = splitList(draft.chartDifficulties)
+  if (difficulties.length) chart.difficulties = difficulties
+
+  return chart
 }
 
 /** 删除某个作品目录下的所有封面文件，避免留下孤儿文件。 */
@@ -64,11 +117,16 @@ async function removeCoverFiles(token: string, workId: string): Promise<void> {
 export async function saveWork(draft: WorkDraft, options: SaveWorkOptions): Promise<Work> {
   const { token, actor, existing, cover, removeCover = false } = options
   if (!draft.title.trim()) throw new Error('请填写作品标题。')
-  if (!draft.eventId) throw new Error('请选择所属活动。')
+  if (!draft.eventId) throw new Error('请选择一个正在进行的活动。')
+
+  const previousCover = existing?.cover ?? undefined
+  // 先做完全部校验与序列化，避免校验失败时已经往仓库写了半成品
+  const chart = buildChart(draft)
+  const links = normalizeLinks(draft.links)
+  if (!cover && (!previousCover || removeCover)) throw new Error('请上传一张封面图。')
 
   const now = new Date().toISOString()
   const id = existing?.id ?? buildWorkId(draft.title)
-  const previousCover = existing?.cover ?? undefined
 
   let nextCover = removeCover ? undefined : previousCover
 
@@ -88,8 +146,9 @@ export async function saveWork(draft: WorkDraft, options: SaveWorkOptions): Prom
     summary: draft.summary.trim(),
     description: draft.description,
     tags: normalizeTags(draft.tags),
-    links: normalizeLinks(draft.links),
+    links,
     cover: nextCover,
+    chart,
     author: existing?.author ?? {
       login: actor.login,
       id: actor.id,

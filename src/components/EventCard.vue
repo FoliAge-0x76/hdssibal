@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { EVENT_STATUS_LABELS } from '@/services/events'
 import { assetUrl } from '@/config'
 import type { EventItem } from '@/types'
+import { isEventOngoing } from '@/utils/eventWindow'
 import { formatDate } from '@/utils/format'
 
 const props = withDefaults(defineProps<{ event: EventItem; count?: number }>(), { count: undefined })
@@ -26,7 +27,7 @@ const period = computed(() => {
     <div class="work-card__body">
       <div class="row" style="gap: 8px">
         <span class="badge" :class="`badge--${props.event.status}`">{{ EVENT_STATUS_LABELS[props.event.status] }}</span>
-        <span v-if="props.event.acceptSubmissions && props.event.status === 'open'" class="badge badge--open">开放投稿</span>
+        <span v-if="isEventOngoing(props.event)" class="badge badge--open">开放投稿</span>
       </div>
       <h3 class="work-card__title">{{ props.event.title }}</h3>
       <p v-if="props.event.subtitle" class="work-card__summary">{{ props.event.subtitle }}</p>

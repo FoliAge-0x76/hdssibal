@@ -21,6 +21,7 @@ export const router = createRouter({
       component: () => import('@/views/WorkDetailView.vue'),
       props: true,
     },
+    { path: '/submit', name: 'submit', component: () => import('@/views/SubmitView.vue') },
     { path: '/me', name: 'my-works', component: () => import('@/views/MyWorksView.vue') },
     { path: '/admin', name: 'admin', component: () => import('@/views/AdminView.vue') },
     { path: '/guide', name: 'guide', component: () => import('@/views/GuideView.vue') },

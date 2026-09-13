@@ -45,6 +45,7 @@ function logout(): void {
       <nav class="nav">
         <router-link to="/">首页</router-link>
         <router-link to="/events">活动</router-link>
+        <router-link to="/submit">投稿</router-link>
         <router-link to="/me">我的作品</router-link>
         <router-link v-if="isAdmin" to="/admin">管理</router-link>
         <router-link to="/guide">参与指南</router-link>

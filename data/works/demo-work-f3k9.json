@@ -5,6 +5,13 @@
   "summary": "一条演示用的作品记录，展示卡片与详情页的排版效果。",
   "description": "这是一件演示作品。正文支持 **Markdown**：\n\n- 列表\n- [链接](https://github.com)\n- 行内 `代码`\n\n把它删除、或替换成你自己的作品即可。\n",
   "cover": "works/demo-work-f3k9/cover.svg",
+  "chart": {
+    "url": "https://github.com/octocat/hdssibal/releases/download/demo/chart.zip",
+    "artist": "未知艺术家",
+    "designer": "八爪猫",
+    "bpm": "128",
+    "difficulties": ["BASIC 4", "ADVANCED 7", "EXPERT 11"]
+  },
   "tags": ["示例", "像素画"],
   "links": [
     { "label": "GitHub", "url": "https://github.com" }

@@ -457,6 +457,11 @@ code {
   font-size: 12px;
 }
 
+.tag--accent {
+  border: 1px solid var(--border-strong);
+  font-weight: 600;
+}
+
 /* ------------------------------------------------------------- activity */
 
 .activity-list {
@@ -517,6 +522,11 @@ code {
   color: var(--text-dim);
 }
 
+.field__error {
+  font-size: 12px;
+  color: var(--danger);
+}
+
 input[type='text'],
 input[type='url'],
 input[type='date'],
@@ -563,6 +573,211 @@ textarea {
   width: 16px;
   height: 16px;
   accent-color: var(--accent);
+}
+
+/* ---------------------------------------------------- submission form */
+
+.work-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-section {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+  margin-bottom: 18px;
+}
+
+.form-section:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.form-section__head {
+  margin-bottom: 12px;
+}
+
+.form-section__head h4 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.form-section__head .field__hint {
+  margin: 0;
+}
+
+.required {
+  color: var(--danger);
+}
+
+.event-pick {
+  display: grid;
+  gap: 10px;
+}
+
+.event-pick__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+
+.event-pick__item:hover {
+  border-color: var(--border-strong);
+}
+
+.event-pick__item--checked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.event-pick__item input {
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.event-pick__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.event-pick__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.event-pick__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.upload-slot {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.upload-slot__preview {
+  width: 200px;
+  flex-shrink: 0;
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #0d141f;
+}
+
+.upload-slot__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.upload-slot__placeholder {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.upload-slot__body {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.upload-slot__input {
+  padding: 8px;
+}
+
+.upload-slot__body p {
+  margin: 0;
+}
+
+.more-fields {
+  margin-top: 14px;
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+}
+
+.checklist-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checklist__item {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.checklist__item--ok {
+  color: var(--success);
+}
+
+.checklist__mark {
+  font-weight: 700;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.submit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.submit-card {
+  padding: 24px;
+}
+
+.chart-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
 }
 
 /* -------------------------------------------------------------- dialog */

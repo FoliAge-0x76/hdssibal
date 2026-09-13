@@ -54,7 +54,9 @@ VITE_GITHUB_BRANCH=main
 ```
 
 ```bash
-npm run dev     # http://localhost:5173
+npm run dev          # http://localhost:5173
+npm run test:unit    # 投稿规则单测（node --test）
+npm run validate:data
 ```
 
 本地没有 `<user>.github.io` 域名可推断，所以这两个变量是必需的；否则页面顶部会显示一条「仓库未配置」的告警。
@@ -65,7 +67,17 @@ npm run dev     # http://localhost:5173
 
 **Settings → Collaborators → Add people**，邀请对方的 GitHub 账户，权限用默认的 **Write**。
 
-对方接受邀请后就能在 `/me` 页面上传作品了。没有写权限的用户可以登录、可以浏览，但提交时会收到 403。
+对方接受邀请后就能在 `/submit` 页面投稿了。没有写权限的用户可以登录、可以浏览，但提交时会收到 403。
+
+投稿规则（前端强制、`services/works.ts` 再校验一次）：
+
+| 必填项 | 规则 |
+| --- | --- |
+| 投稿活动 | 复选框，只列出**正在进行中**的活动（`open` + `acceptSubmissions` + 当前时间在 `startAt`/`endAt` 之间），一次只能选一个 |
+| 封面图 | 任意文件名，PNG / JPEG / WebP / GIF，压缩后写入 `public/works/<id>/cover.<ext>` |
+| 谱面下载链接 | 必须是 http(s) 地址，写进 `chart.url`；谱面文件不进仓库 |
+
+三项齐全后按钮才会启用。想演示「已截止的活动不可投稿」，可以在 `data/events/` 里加一个 `status: "closed"`、`endAt` 已过去的活动——本站自带 `2026-spring-cup.json` 就是这样的例子。
 
 ## 5.（可选）配置 GitHub 一键登录
 
@@ -164,8 +176,8 @@ VITE_OAUTH_SCOPES=public_repo
 | 文件 | 说明 |
 | --- | --- |
 | `data/config.json` | 站点名称、标语、管理员白名单、动态条数上限 |
-| `data/events/<id>.json` | 活动。`status`：`draft`/`upcoming`/`open`/`closed`/`archived`；`acceptSubmissions` 控制能否投稿 |
-| `data/works/<id>.json` | 作品。`eventId` 必须指向存在的活动 |
+| `data/events/<id>.json` | 活动。`status`：`draft`/`upcoming`/`open`/`closed`/`archived`；`acceptSubmissions` 控制能否投稿。**只有 `status = open`、`acceptSubmissions = true` 且当前时间在 `startAt`–`endAt` 之间的活动才会出现在投稿页**（判定见 [utils/eventWindow.ts](../src/utils/eventWindow.ts)） |
+| `data/works/<id>.json` | 作品。`eventId` 必须指向存在的活动；`chart.url` 与 `links[].url` 必须是 http(s) |
 | `public/<封面路径>` | 封面图，`cover` 字段写相对 `public/` 的路径，例如 `works/abc/cover.webp` |
 
 **文件名必须等于文件里的 `id`**，这是校验脚本的硬性要求。
