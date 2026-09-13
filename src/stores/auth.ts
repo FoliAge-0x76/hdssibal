@@ -1,30 +1,27 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { oauthEnabled, oauthRedirectUri, oauthRelayUrl } from '@/config'
+import { oauthEnabled, oauthRelayUrl, oauthReturnUrl, oauthScopes } from '@/config'
 import {
   AuthError,
-  buildAuthorizeUrl,
+  buildRelayAuthorizeUrl,
   describeMissingScope,
-  exchangeCodeForToken,
+  exchangeSessionForToken,
 } from '@/services/auth'
 import { loadConfig } from '@/services/catalog'
 import { GitHubError, fetchIdentity, fetchRepoAccess, type RepoAccess } from '@/services/github'
-import { createCodeChallenge, createCodeVerifier, createState } from '@/utils/pkce'
+import { randomToken } from '@/utils/randomToken'
+import { openOAuthPopup, waitForOAuthResult, type OAuthResult } from '@/utils/oauthWindow'
 import { useToast } from '@/composables/useToast'
 import type { Identity } from '@/types'
 
 const TOKEN_STORAGE_KEY = 'hdssibal:token'
 const IDENTITY_STORAGE_KEY = 'hdssibal:identity'
-/** 跳转授权页前把 state/verifier 存进 sessionStorage，回跳时用它校验并完成换取。 */
+/** 跳转授权页前把 nonce 存进 sessionStorage，回跳时用它确认这次登录确实由本站发起。 */
 const OAUTH_PENDING_KEY = 'hdssibal:oauth:pending'
+/** 整页回落会丢掉 hash 路由，起跳前先记下来，登录成功后还回去。 */
+const OAUTH_RETURN_KEY = 'hdssibal:oauth:return'
 
 export type AuthStatus = 'idle' | 'checking' | 'authenticating' | 'ready'
-
-interface PendingOAuth {
-  state: string
-  verifier: string
-  redirectUri: string
-}
 
 function readCachedIdentity(): Identity | null {
   try {
@@ -38,15 +35,6 @@ function readCachedIdentity(): Identity | null {
 function writeCachedIdentity(identity: Identity | null): void {
   if (identity) localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(identity))
   else localStorage.removeItem(IDENTITY_STORAGE_KEY)
-}
-
-function readPendingOAuth(): PendingOAuth | null {
-  try {
-    const raw = sessionStorage.getItem(OAUTH_PENDING_KEY)
-    return raw ? (JSON.parse(raw) as PendingOAuth) : null
-  } catch {
-    return null
-  }
 }
 
 export function describeAuthError(error: unknown): string {
@@ -130,7 +118,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** 一键登录：生成 state 与 PKCE 参数后跳转到 GitHub 授权页。 */
+  /**
+   * 一键登录：把本站的回跳地址交给中转层，然后打开 GitHub 授权页。
+   *
+   * 优先用弹窗，这样授权期间用户不会丢失当前浏览位置；弹窗被拦截时退化成整页跳转，
+   * 回跳后由 bootstrap() 接管。两种路径最终都汇到 completeOAuth()。
+   */
   async function beginOAuthLogin(): Promise<void> {
     error.value = null
     if (!oauthAvailable.value) {
@@ -138,72 +131,114 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
     try {
-      const verifier = createCodeVerifier()
-      const state = createState()
-      const redirectUri = oauthRedirectUri()
-      const authorizeUrl = buildAuthorizeUrl({
-        redirectUri,
-        state,
-        codeChallenge: await createCodeChallenge(verifier),
+      // 只存 nonce，不存任何会被中转层重新封装的东西
+      const nonce = randomToken()
+      sessionStorage.setItem(OAUTH_PENDING_KEY, nonce)
+      sessionStorage.setItem(OAUTH_RETURN_KEY, location.hash)
+      const authorizeUrl = buildRelayAuthorizeUrl({
+        relayUrl: oauthRelayUrl,
+        redirectUri: oauthReturnUrl(),
+        state: nonce,
+        scope: oauthScopes,
       })
-      // 用 sessionStorage 而非 localStorage：关掉标签页就作废，减少残留
-      sessionStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify({ state, verifier, redirectUri }))
-      location.assign(authorizeUrl)
+
+      const popup = openOAuthPopup(authorizeUrl)
+      status.value = 'authenticating'
+      if (!popup) {
+        location.assign(authorizeUrl)
+        return
+      }
+
+      const result = await waitForOAuthResult(popup)
+      if (!result) {
+        status.value = 'idle'
+        error.value = 'GitHub 授权未完成（窗口被关闭或等待超时），请重试或改用访问令牌登录。'
+        return
+      }
+      await completeOAuth(result)
     } catch (caught) {
+      status.value = 'idle'
       error.value = describeAuthError(caught)
     }
   }
 
   /**
-   * 处理从 GitHub 回跳的授权码。命中并成功换取令牌时返回 true。
-   * 无论成败都会把 query 从地址栏清掉，避免刷新页面时重放已失效的授权码。
+   * 用中转层送回的结果完成登录。弹窗消息与整页回跳共用这一条路径。
    */
-  async function handleOAuthCallback(): Promise<boolean> {
-    const params = new URLSearchParams(location.search)
-    const code = params.get('code')
-    const returnedState = params.get('state')
-    const oauthError = params.get('error')
-    if (!code && !oauthError) return false
-
-    const pending = readPendingOAuth()
+  async function completeOAuth(result: OAuthResult): Promise<boolean> {
+    const pending = sessionStorage.getItem(OAUTH_PENDING_KEY)
     sessionStorage.removeItem(OAUTH_PENDING_KEY)
-    clearOAuthQuery()
 
-    if (oauthError) {
-      error.value =
-        oauthError === 'access_denied'
-          ? '已取消 GitHub 授权。'
-          : params.get('error_description') || 'GitHub 授权失败，请重试。'
+    if (result.error) {
       status.value = 'idle'
+      error.value =
+        result.error === 'access_denied'
+          ? '已取消 GitHub 授权。'
+          : result.errorDescription || 'GitHub 授权失败，请重试。'
+      restoreRoute()
       return false
     }
 
-    if (!pending || !returnedState || returnedState !== pending.state) {
-      error.value = '登录校验失败（state 不匹配），请重新登录。'
+    if (!result.session || !pending || result.state !== pending) {
       status.value = 'idle'
+      error.value = '登录校验失败（state 不匹配），请重新登录。'
+      restoreRoute()
       return false
     }
 
     status.value = 'authenticating'
     try {
-      const result = await exchangeCodeForToken({
+      const exchanged = await exchangeSessionForToken({
         relayUrl: oauthRelayUrl,
-        code: code!,
-        codeVerifier: pending.verifier,
-        redirectUri: pending.redirectUri,
+        session: result.session,
       })
-      return await loginWithToken(result.token, result.scopes)
+      return await loginWithToken(exchanged.token, exchanged.scopes)
     } catch (caught) {
       status.value = 'idle'
       error.value = describeAuthError(caught)
       return false
+    } finally {
+      restoreRoute()
     }
   }
 
-  /** 去掉地址栏里的 code/state，保留 hash 路由。 */
+  /**
+   * 处理整页回落留下的查询参数（弹窗路径不会有）。无论成败都会把 query 从地址栏清掉，
+   * 避免刷新页面时用同一个凭据再换一次令牌。
+   */
+  async function handleOAuthCallback(): Promise<boolean> {
+    const params = new URLSearchParams(location.search)
+    const session = params.get('session')
+    const oauthError = params.get('error')
+    if (!session && !oauthError) return false
+
+    clearOAuthQuery()
+    return await completeOAuth({
+      session: session ?? undefined,
+      state: params.get('state') ?? undefined,
+      error: oauthError ?? undefined,
+      errorDescription: params.get('error_description') ?? undefined,
+    })
+  }
+
+  /** 去掉地址栏里的 session/state，保留 hash 路由。 */
   function clearOAuthQuery(): void {
     const url = `${location.origin}${location.pathname}${location.hash}`
     history.replaceState(null, '', url)
+  }
+
+  /**
+   * 整页回落时中间经过了 /oauth/callback.html，hash 路由会在那一跳丢掉。
+   * 登录结束后把它还原，用户就不会莫名其妙回到首页。
+   */
+  function restoreRoute(): void {
+    const saved = sessionStorage.getItem(OAUTH_RETURN_KEY)
+    sessionStorage.removeItem(OAUTH_RETURN_KEY)
+    if (!saved || saved === '#/') return
+    // 回跳后 Vue Router 会把空 hash 规范成 '#/'，所以停在 '#/' 也算「还没导航」；
+    // 只有用户已经跳到别的路由时才不动他的位置。
+    if (location.hash && location.hash !== '#/') return
+    location.hash = saved
   }
 
   function logout(): void {
@@ -211,6 +246,7 @@ export const useAuthStore = defineStore('auth', () => {
     repoAccess.value = null
     error.value = null
     sessionStorage.removeItem(OAUTH_PENDING_KEY)
+    sessionStorage.removeItem(OAUTH_RETURN_KEY)
     status.value = 'idle'
   }
 
@@ -259,6 +295,7 @@ export const useAuthStore = defineStore('auth', () => {
     oauthAvailable,
     loginWithToken,
     beginOAuthLogin,
+    completeOAuth,
     handleOAuthCallback,
     logout,
     restore,

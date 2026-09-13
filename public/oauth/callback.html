@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- 地址栏里带着登录凭据，别通过 Referer 泄漏给任何第三方 -->
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex" />
+    <title>正在完成登录…</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font: 15px/1.7 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        background: #0d1117;
+        color: #e6edf3;
+      }
+      p {
+        margin: 0;
+        padding: 24px 28px;
+        max-width: 32ch;
+        text-align: center;
+        border-radius: 12px;
+        background: #161b22;
+        border: 1px solid #30363d;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="status">正在完成登录…</p>
+    <script>
+      /*
+       * OAuth 回跳的落点。中转层把结果拼在 query 上送到这里，本页只做转发：
+       *
+       * 1. 先把结果写进 localStorage —— storage 事件不受 opener 隔离策略影响，
+       *    是打开它的站点页面一定能收到的一条通道；
+       * 2. opener 还在时 postMessage 给它（更直接），随后关掉自己；
+       * 3. opener 不在了（弹窗被拦后的整页回落，或关系已被切断）就带着同样的 query 跳回站点首页。
+       *
+       * 本页刻意不引用任何打包产物、不写模板语法，所以它只是一份原样拷贝到 dist 的静态文件。
+       */
+      ;(function () {
+        var params = new URLSearchParams(window.location.search)
+        var message = { type: 'hdssibal:oauth' }
+        if (params.get('session')) message.session = params.get('session')
+        if (params.get('state')) message.state = params.get('state')
+        if (params.get('error')) message.error = params.get('error')
+        if (params.get('error_description')) {
+          message.errorDescription = params.get('error_description')
+        }
+
+        try {
+          window.localStorage.setItem('hdssibal:oauth:result', JSON.stringify(message))
+        } catch (error) {
+          // 隐私模式下可能不可用，postMessage 那条路仍可走
+        }
+
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(message, window.location.origin)
+          document.getElementById('status').textContent = '登录完成，正在关闭窗口…'
+          window.setTimeout(function () {
+            window.close()
+          }, 100)
+          return
+        }
+
+        window.location.replace(new URL('../', window.location.href).href + window.location.search)
+      })()
+    </script>
+  </body>
+</html>

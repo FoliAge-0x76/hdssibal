@@ -37,7 +37,7 @@ npm run dev                  # http://localhost:5173
 | `npm run build` | 类型检查 + 生产构建（产物在 `dist/`） |
 | `npm run preview` | 预览生产构建 |
 | `npm run typecheck` | 只跑 `vue-tsc` |
-| `npm run test:unit` | 投稿规则纯函数单测（`node --test`） |
+| `npm run test:unit` | 投稿规则与登录相关的纯函数单测（`node --test`） |
 | `npm run validate:data` | 校验 `data/` 下的 JSON 结构与引用（CI 会跑） |
 
 > ⚠️ 本项目固定使用 **TypeScript 5.9**。`vue-tsc` 目前还不兼容 TypeScript 7（`tsgo` 不再导出 `./lib/tsc`），升级 `typescript` 会导致 `npm run typecheck` 直接崩溃。
@@ -56,22 +56,26 @@ npm run dev                  # http://localhost:5173
 
 站点提供两种登录，UI 上是两个标签页：
 
-**A. GitHub 一键登录（OAuth 授权码 + PKCE）—— 推荐，需要一次性配置**
+**A. GitHub 一键登录（OAuth 授权码流程）—— 推荐，需要一次性配置**
 
-用户点按钮 → 跳转 GitHub 授权页 → 确认后自动回跳完成登录。配置两步：
+用户点按钮 → 弹出 GitHub 授权窗口 → 确认后窗口自动关闭，站点完成登录。配置两步：
 
-1. 注册一个 **OAuth App**（[github.com/settings/developers](https://github.com/settings/developers) → New OAuth App），**Authorization callback URL** 填生产站点地址（如 `https://<user>.github.io/<repo>/`），拿到 Client ID 填进 `VITE_OAUTH_CLIENT_ID`。
-2. 部署 [relay/](./relay) 里的中转层到 Deno Deploy，把它的域名填进 `VITE_OAUTH_RELAY_URL`，并在中转层里配置 `GITHUB_CLIENT_SECRET`。步骤见 [relay/README.md](./relay/README.md)。
+1. 注册一个 **OAuth App**（[github.com/settings/developers](https://github.com/settings/developers) → New OAuth App），**Authorization callback URL** 填 `<中转层域名>/api/oauth/authorized`（例如 `https://hdssibal-relay.deno.dev/api/oauth/authorized`）。这个地址是固定的，与站点部署在哪里无关。
+2. 部署 [relay/](./relay) 里的中转层到 Deno Deploy，把它的域名填进 `VITE_OAUTH_RELAY_URL`，并在中转层里配置 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET` 和站点来源白名单 `ALLOWED_ORIGINS`。步骤见 [relay/README.md](./relay/README.md)。
 
-为什么必须有中转层：GitHub 的 `login/oauth/access_token` 端点**不返回任何 CORS 响应头**（官方明确不支持预检请求），而且**必须**携带 `client_secret`——PKCE 只能加强安全性，不能替代 secret。纯静态站点放不下 secret，也不能直接调那个端点，所以「授权码换令牌」这一步由几十行的中转层代劳；`client_secret` 只存在于中转层，前端产物里没有任何密钥。
+前端**不需要 Client ID**，更不需要 Client Secret——它们只存在于中转层的环境变量里。
+
+这套做法参考 [giscus](https://github.com/giscus/giscus)：GitHub 侧只登记**一个固定回调地址**，「授权完成后要回到哪个站点」由中转层加密进 `state` 携带，所以同一个 OAuth App 能同时服务生产站点、fork 出来的站点和本地开发；中转层发出的 `session` 只能由当初发起登录的那个来源换成令牌，明文令牌全程不出现在地址栏里。
+
+为什么必须有中转层：GitHub 的 `login/oauth/access_token` 端点**不返回任何 CORS 响应头**（官方明确不支持预检请求），而且**必须**携带 `client_secret`。纯静态站点放不下 secret，也不能直接调那个端点，所以「授权码换令牌」这一步由中转层代劳；`client_secret` 只存在于中转层，前端产物里没有任何密钥。
 
 **B. 个人访问令牌（PAT）—— 兜底方案，0 配置**
 
 到 [github.com/settings/tokens](https://github.com/settings/tokens) 生成 **Fine-grained token**，仓库选本站仓库，权限给 `Contents: Read and write`（经典令牌则勾 `public_repo`，私有仓库勾 `repo`）。粘贴即可登录。只要 `api.github.com` 可达，这条路 100% 可用，因此中转层挂掉或没配置时也不会被锁在门外。
 
-登录结果保存在 `localStorage`（键名 `hdssibal:token`），之后只在浏览器里调用 `api.github.com`。中转层只在登录那一瞬间经手一次授权码，既不落库也拿不到令牌——它回给浏览器的令牌最终仍由你自己保存。
+登录结果保存在 `localStorage`（键名 `hdssibal:token`），之后只在浏览器里调用 `api.github.com`。中转层经手授权码并把它换成令牌，但**从不落库**：令牌被装进一个 5 分钟有效、只对本站来源有效的 `session` 里送回浏览器，最终仍由你自己保存。
 
-> 早期版本实现过设备码（Device Flow），但实测它要调用的 `github.com/login/*` 端点同样不带 CORS 头，在浏览器里必然失败，因此已整体移除。
+> 早期版本还实现过设备码（Device Flow）与 PKCE：前者要调用的 `github.com/login/*` 端点同样不带 CORS 头，在浏览器里必然失败；后者在「授权码由 GitHub 直接送到中转层」的流程里是冗余的（换令牌必须有 secret），两者均已移除。
 
 ## 数据格式（`data/`）
 

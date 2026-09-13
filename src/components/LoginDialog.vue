@@ -53,15 +53,26 @@ function messageFromError(error: unknown): string {
   return describeAuthError(error)
 }
 
-/** 一键登录会整页跳转到 GitHub，成功与否由回跳后的 bootstrap() 判定，这里只处理起跳失败。 */
+/** 一键登录会在弹窗里完成授权；弹窗被拦截时改为整页跳转，由回跳后的 bootstrap() 判定成败。 */
 async function startOAuthLogin(): Promise<void> {
   message.value = null
   busy.value = true
-  await auth.beginOAuthLogin()
-  if (auth.error) {
-    message.value = auth.error
+  try {
+    await auth.beginOAuthLogin()
+  } finally {
     busy.value = false
   }
+  if (auth.isLoggedIn) {
+    toast.success(`已登录为 ${auth.login}`)
+    close()
+    return
+  }
+  // 走整页跳转时这里已经开始离开页面了，别把「未完成」错报给用户。
+  if (auth.status === 'authenticating') {
+    busy.value = true
+    return
+  }
+  message.value = auth.error ?? 'GitHub 授权未完成，请重试。'
 }
 
 async function submitToken(): Promise<void> {
@@ -114,22 +125,22 @@ async function submitToken(): Promise<void> {
 
     <template v-if="mode === 'oauth'">
       <div v-if="!auth.oauthAvailable" class="alert alert--warning">
-        尚未配置 GitHub 一键登录：需要同时提供 OAuth App 的
-        <code>VITE_OAUTH_CLIENT_ID</code> 与中转层地址 <code>VITE_OAUTH_RELAY_URL</code>
+        尚未配置 GitHub 一键登录：需要提供中转层地址 <code>VITE_OAUTH_RELAY_URL</code>
         （见 <code>docs/SETUP.md</code> 第 5 节）。在此之前请改用访问令牌登录。
       </div>
       <template v-else>
         <p class="small muted">
-          点击下面的按钮会跳转到 GitHub 授权页，确认后自动回到本站完成登录，无需手动创建或粘贴令牌。
+          点击下面的按钮会打开一个 GitHub 授权窗口，确认后自动回到本站完成登录，无需手动创建或粘贴令牌。
           本站只会获得「{{ describeScope() }}」范围的权限。
         </p>
         <p class="small dim">
-          如果浏览器拦截了跳转，或授权后没有回到本站，请改用访问令牌登录。
+          如果浏览器拦截了授权窗口，会自动改为在当前标签页跳转；
+          也可以改用访问令牌登录。
         </p>
         <div class="modal__actions">
           <button class="btn btn--primary" type="button" :disabled="busy" @click="startOAuthLogin">
             <span v-if="busy" class="spinner"></span>
-            使用 GitHub 登录
+            {{ busy ? '等待 GitHub 授权…' : '使用 GitHub 登录' }}
           </button>
         </div>
       </template>

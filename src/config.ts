@@ -38,33 +38,35 @@ export const isRepoConfigured: boolean =
 
 export const repoWebUrl: string = `https://github.com/${repoRef.owner}/${repoRef.repo}`
 
-/** GitHub OAuth App 的 Client ID；为空时只能使用访问令牌登录。 */
-export const oauthClientId: string = import.meta.env.VITE_OAUTH_CLIENT_ID?.trim() ?? ''
-
+/** 仅用于「访问令牌登录」页面上那个预填权限的创建链接，一键登录不再用到它。 */
 export const oauthScopes: string = import.meta.env.VITE_OAUTH_SCOPES?.trim() || 'public_repo'
 
 /**
  * OAuth 中转层地址（relay/ 目录里那份代码部署后拿到的域名）。
- * 因为 GitHub 的 token 端点不支持 CORS 预检、且必须携带 client_secret，
- * 授权码→令牌的交换只能由这个中转层来完成。
+ *
+ * Client ID / Client Secret 都只存在于中转层，站点这边不需要知道：
+ * GitHub 的 token 端点不支持 CORS 预检、且必须携带 client_secret，
+ * 所以「把授权结果换成令牌」只能由中转层完成。
  */
 export const oauthRelayUrl: string = (import.meta.env.VITE_OAUTH_RELAY_URL?.trim() ?? '').replace(
   /\/+$/,
   '',
 )
 
-/** 一键登录需要 Client ID 与中转层地址同时就位。 */
-export const oauthEnabled: boolean = oauthClientId.length > 0 && oauthRelayUrl.length > 0
+/** 一键登录只需要中转层地址就位。 */
+export const oauthEnabled: boolean = oauthRelayUrl.length > 0
 
 /**
- * OAuth 回调地址，必须与 OAuth App 里登记的 Authorization callback URL 完全一致。
- * 站点走 hash 路由，所以真实路径只会是 `/` 或 `/<repo>/`；这里顺手把
- * `/index.html` 归一化掉，避免用户从 index.html 进入时算出不一样的 redirect_uri。
+ * 本站用来接收授权结果的静态页地址。
+ *
+ * 站点走 hash 路由，所以 `location.pathname` 只可能是 `/`、`/<repo>/` 或 `/index.html`；
+ * 这里统一归一化成站点目录，再拼上 `oauth/callback.html`。
+ * 该页面把结果 postMessage 给弹出的窗口（或整页回落时带着 query 跳回首页）。
  */
-export function oauthRedirectUri(): string {
+export function oauthReturnUrl(): string {
   if (typeof location === 'undefined') return ''
-  const path = location.pathname.replace(/index\.html$/, '') || '/'
-  return `${location.origin}${path}`
+  const directory = location.pathname.replace(/index\.html$/, '').replace(/[^/]*$/, '')
+  return `${location.origin}${directory}oauth/callback.html`
 }
 
 /** 把 data/ 里记录的相对路径转成可访问的 URL。 */

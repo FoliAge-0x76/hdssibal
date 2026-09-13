@@ -91,22 +91,25 @@ npm run validate:data
 2. 填写：
    - **Application name**：随便，例如 `Hdssibal Arena`
    - **Homepage URL**：你的站点地址
-   - **Authorization callback URL**：**生产站点的根地址**，例如 `https://your-name.github.io/hdssibal/`。这是唯一允许的回调地址，本地开发时要临时改成 `http://localhost:5173/`。
+   - **Authorization callback URL**：**中转层的回调地址**，即 `<中转层域名>/api/oauth/authorized`（例如 `https://hdssibal-relay.deno.dev/api/oauth/authorized`）。这个地址是固定的，跟站点部署在哪里无关。
 3. 创建后复制 **Client ID**，再点 **Generate a new client secret** 生成 **Client Secret**（只显示一次，先存好）。
 
-> ⚠️ 回调地址必须和站点的 `location.origin + location.pathname` 完全一致（含结尾斜杠）。GitHub 只允许登记一个地址，末尾斜杠不一致也会被拒绝。
+> 💡 为什么回调地址指向中转层而不是站点：这是 [giscus](https://github.com/giscus/giscus) 的做法——GitHub 那边只登记一个固定地址，「授权完成后要回到哪个站点」由中转层**加密进 `state`** 携带。好处是同一个 OAuth App / 同一份中转层能同时服务生产站点、别人 fork 出来的站点和本地开发，不必为每个地址改 GitHub 上的配置。要换回跳地址，改中转层的 `ALLOWED_ORIGINS` 就够了。
 
 ### 5.2 部署中转层
 
-GitHub 的令牌端点**不支持 CORS 预检、并且强制要求 `client_secret`**（PKCE 不能替代），所以「授权码 → 令牌」这一步必须由服务端完成。仓库里的 [relay/](../relay) 就是这个中转层，几十行代码，部署到 Deno Deploy 不需要装任何工具：
+GitHub 的令牌端点**不支持 CORS 预检、并且强制要求 `client_secret`**，所以「授权码 → 令牌」这一步必须由服务端完成。仓库里的 [relay/](../relay) 就是这个中转层，部署到 Deno Deploy 不需要装任何工具：
 
 1. 打开 [dash.deno.com](https://dash.deno.com/) 用 GitHub 登录 → **New Playground**。
 2. 把 [relay/src/relay.ts](../relay/src/relay.ts) 的内容整份粘贴进去并保存。
 3. **Settings → Environment Variables** 添加：
    - `GITHUB_CLIENT_ID` = 上一步的 Client ID
    - `GITHUB_CLIENT_SECRET` = 上一步的 Client Secret
-   - `ALLOWED_ORIGINS` = `https://your-name.github.io,http://localhost:5173`（逗号分隔；**漏配会导致登录被拒绝**）
-4. 拿到 `https://<名字>.<用户名>.deno.dev` 域名，用 `curl https://<域名>/health` 确认 `"configured":true`。
+   - `ALLOWED_ORIGINS` = `https://your-name.github.io,http://localhost:5173`（逗号分隔的**站点来源白名单**；**漏配会导致登录被拒绝**）
+   - `STATE_SECRET`（可选）= 任意长随机串。不填会退化成用 `GITHUB_CLIENT_SECRET` 派生密钥，填上则换了 client secret 也不会让旧 state 失效。
+4. 拿到 `https://<名字>.<用户名>.deno.dev` 域名，用 `curl https://<域名>/health` 确认 `"configured":true` 且 `"allowsAnyOrigin":false`。
+
+> ⚠️ **不要把 `ALLOWED_ORIGINS` 设成 `*`。** 中转层发出的 `session` 里装的就是访问令牌，来源白名单是它唯一的防线；所有来源都放行等于把令牌换给了任意网站（`/health` 会如实报告 `allowsAnyOrigin:true`，中转层也会打警告日志）。
 
 细节、Cloudflare Workers 备选方案与本地联调方式见 [relay/README.md](../relay/README.md)。
 
@@ -115,14 +118,15 @@ GitHub 的令牌端点**不支持 CORS 预检、并且强制要求 `client_secre
 在 `.env.local`（本地）里填：
 
 ```
-VITE_OAUTH_CLIENT_ID=Ov23liXXXXXXXXXXXXXX
 VITE_OAUTH_RELAY_URL=https://<你的域名>
 VITE_OAUTH_SCOPES=public_repo
 ```
 
-在 GitHub Pages 上部署时，这些变量要从仓库变量注入：**Settings → Secrets and variables → Actions → Variables** 里添加同名的 `VITE_OAUTH_CLIENT_ID` 与 `VITE_OAUTH_RELAY_URL`（用自定义域名的话还有 `VITE_GITHUB_OWNER`、`VITE_GITHUB_REPO`），[deploy.yml](../.github/workflows/deploy.yml) 的 build 步骤已经把这些变量接上了。
+**前端不需要 Client ID，也不需要（更不该有）Client Secret**——它们只存在于中转层的环境变量里。
 
-两者缺任一，登录弹窗都会提示「尚未配置一键登录」并引导用户改用 PAT——不会白屏，也不会静默失败。
+在 GitHub Pages 上部署时，这些变量要从仓库变量注入：**Settings → Secrets and variables → Actions → Variables** 里添加同名的 `VITE_OAUTH_RELAY_URL`（用自定义域名的话还有 `VITE_GITHUB_OWNER`、`VITE_GITHUB_REPO`），[deploy.yml](../.github/workflows/deploy.yml) 的 build 步骤已经把这些变量接上了。
+
+没填 `VITE_OAUTH_RELAY_URL` 时，登录弹窗会提示「尚未配置一键登录」并引导用户改用 PAT——不会白屏，也不会静默失败。
 
 ### 5.4 一键登录失败时
 
@@ -132,10 +136,15 @@ VITE_OAUTH_SCOPES=public_repo
 | --- | --- |
 | 已取消 GitHub 授权 | 用户在授权页点了 Cancel，重新登录即可 |
 | 登录校验失败（state 不匹配） | 回跳时 `sessionStorage` 里的待验证数据已丢失（换了标签页、清了站点数据），重新登录 |
+| 登录状态校验失败或已超时 | 授权过程超过 10 分钟（授权码/state 只有 10 分钟有效期），重新登录 |
 | 中转服务的 Client ID / Client Secret 配置不正确 | 中转层的两个环境变量没设对，或 OAuth App 的 secret 被重新生成过 |
 | 中转服务拒绝了本站的来源 | `ALLOWED_ORIGINS` 没包含当前访问的域名（本地开发时最容易漏 `http://localhost:5173`） |
-| 授权码无效或已过期 | 授权码只有 10 分钟有效期且用一次即废；刷新页面重试 |
+| 本站的回跳地址不被中转服务接受 | 站点不是通过 https 访问（只有 `localhost` / `127.0.0.1` 允许走 http） |
+| 登录凭据不属于本站 | 换来的 `session` 与请求来源不一致，通常是把别的站点拿到的 `session` 复制过来了 |
+| 中转服务版本过旧 | 部署的 relay 还是老版本（没有 `/api/oauth` 接口），重新粘贴最新代码 |
 | 无法连接登录中转服务 | 中转层没部署、域名填错，或被网络拦截 |
+
+授权窗口被浏览器拦截时，站点会自动改为**在当前标签页跳转**；授权期间当前标签页不会丢失浏览位置（弹窗成功后会回到原处，连 hash 路由一起还原）。
 
 **任何时候都可以改用访问令牌登录**：登录弹窗的第二个标签页。
 
@@ -214,11 +223,14 @@ CI 里 `Validate data` workflow 会在 `data/**` 或 `public/**` 变更时自动
 流程本身不需要改：
 
 ```
-浏览器 → 跳转 github.com/login/oauth/authorize?client_id=...&code_challenge=...
-GitHub  → 回调到站点根地址?code=...&state=...
-浏览器 → POST 中转层 /api/token { code, code_verifier, redirect_uri }
-中转层 → 带 client_secret + code_verifier 换 access_token → 返回给前端
+站点   → 跳转 <中转层>/api/oauth/authorize?redirect_uri=<站点回跳地址>&state=<随机串>
+中转层 → 把站点回跳地址加密成 state，302 到 github.com/login/oauth/authorize?client_id=...&state=...
+GitHub → 回调 <中转层>/api/oauth/authorized?code=...&state=...
+中转层 → 解密 state、带 client_secret 换 access_token、封成 5 分钟有效的 session，302 回站点
+站点   → POST <中转层>/api/oauth/session { session } 换明文令牌（凭据只对本站来源有效）
 ```
+
+关键点：**GitHub 侧只有中转层这一个固定回调地址**，站点地址靠加密 state 携带，所以同一份中转层可以服务任意多个站点；`client_secret` 与站点完全隔离，前端产物里没有任何密钥。
 
 ### 9.2 换成 GitHub App
 

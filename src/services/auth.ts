@@ -1,22 +1,21 @@
-import { oauthClientId, oauthScopes } from '@/config'
-
 /**
  * GitHub 登录。提供两条互不依赖的路径：
  *
- * 1. **GitHub 一键登录**（OAuth 授权码流程 + PKCE）——推荐。
+ * 1. **GitHub 一键登录**（OAuth 授权码流程）——推荐，实现参考 giscus。
  *    站点是纯静态的，而 GitHub 的 `login/oauth/access_token` 端点**不返回任何 CORS 响应头**，
- *    且**必须**携带 `client_secret`（PKCE 不能替代它）。所以「用授权码换令牌」这一步
- *    交给自建的中转层完成（代码见 relay/ 目录）：浏览器只负责跳转授权页，
- *    把 GitHub 回跳的 `code` 交给中转层；`client_secret` 永远留在中转层，不进前端产物。
+ *    且**必须**携带 `client_secret`。所以「用授权码换令牌」交给自建的中转层完成
+ *    （代码见 relay/ 目录）。跟 giscus 一样，中转层在 GitHub 那边只登记**一个固定回调地址**，
+ *    「授权完成后要回到哪个站点」由中转层加密进 `state` 携带，
+ *    所以同一个中转层可以同时服务生产站点、fork 和本地开发。
  *    详见 docs/SETUP.md 的「登录方案对比」。
  * 2. **访问令牌（PAT）**——兜底。用户自己粘贴 fine-grained / classic token，
  *    走 api.github.com，该域名完整支持 CORS，任何环境下都可用。
  *
- * 早期版本还实现过设备码（Device Flow），但它同样要调用不带 CORS 头的
- * `github.com/login/*` 端点，实测在浏览器里不可用，已整体移除。
+ * 早期版本还实现过设备码（Device Flow）与 PKCE，前者同样要调用不带 CORS 头的
+ * `github.com/login/*` 端点，实测在浏览器里不可用；后者在本流程里是多余的
+ * （授权码由 GitHub 直接送到中转层，不经过浏览器 JS，且换令牌必须有 secret），
+ * 两者均已移除。
  */
-
-const AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
 
 export class AuthError extends Error {
   readonly detail?: unknown
@@ -29,29 +28,26 @@ export class AuthError extends Error {
 }
 
 /**
- * 构造 GitHub 授权页地址。参数用 encodeURIComponent 手工拼接，
+ * 构造中转层的授权入口地址。参数用 encodeURIComponent 手工拼接，
  * 因为 URLSearchParams 会把 scope 里的空格编码成 `+`。
  */
-export function buildAuthorizeUrl(params: {
+export function buildRelayAuthorizeUrl(params: {
+  relayUrl: string
   redirectUri: string
   state: string
-  codeChallenge: string
+  scope?: string
 }): string {
-  if (!oauthClientId) {
-    throw new AuthError('尚未配置 OAuth App 的 Client ID，无法使用 GitHub 登录。')
-  }
+  const base = `${params.relayUrl.replace(/\/+$/, '')}/api/oauth/authorize`
   const query: Record<string, string> = {
-    client_id: oauthClientId,
     redirect_uri: params.redirectUri,
-    scope: oauthScopes,
     state: params.state,
-    code_challenge: params.codeChallenge,
-    code_challenge_method: 'S256',
+    scope: params.scope ?? '',
   }
   const encoded = Object.entries(query)
+    .filter(([, value]) => value !== '')
     .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
     .join('&')
-  return `${AUTHORIZE_URL}?${encoded}`
+  return `${base}?${encoded}`
 }
 
 /** 把中转层返回的错误码翻译成用户看得懂的中文说明；无法识别时返回 null 交给调用方兜底。 */
@@ -68,15 +64,25 @@ function describeRelayError(code: string): string | null {
     case 'redirect_uri_not_allowed':
     case 'forbidden_origin':
       return '中转服务拒绝了本站的来源，请检查中转层的 ALLOWED_ORIGINS 是否包含本站域名。'
+    case 'insecure_redirect_uri':
+    case 'invalid_redirect_uri':
+      return '本站的回跳地址不被中转服务接受。请确认站点通过 https 访问，且域名在 ALLOWED_ORIGINS 里。'
+    case 'invalid_state':
+    case 'state_expired':
+      return '登录状态校验失败或已超时（授权有效期 10 分钟），请重新登录。'
+    case 'session_origin_mismatch':
+      return '登录凭据不属于本站，请重新登录。'
     case 'upstream_unreachable':
       return '中转服务无法访问 GitHub，请稍后重试。'
     case 'missing_code':
-    case 'missing_redirect_uri':
+    case 'missing_session':
+    case 'redirect_uri_required':
     case 'invalid_request_body':
-    case 'invalid_redirect_uri':
       return '登录请求不完整或格式不正确，请重新登录。'
     case 'method_not_allowed':
       return '中转服务拒绝了这次请求，请重新登录或改用访问令牌。'
+    case 'not_found':
+      return '中转服务版本过旧（没有 /api/oauth 接口），请更新 relay 部署后重试。'
     default:
       return null
   }
@@ -87,25 +93,22 @@ export interface TokenExchangeResult {
   scopes: string | null
 }
 
-/** 经中转层把授权码换成访问令牌。中转层不返回 secret，也不记录令牌。 */
-export async function exchangeCodeForToken(params: {
+/**
+ * 把 `session` 换成访问令牌。凭据只对本站点有效（中转层会核对来源），
+ * 令牌本身全程不出现在地址栏里。
+ */
+export async function exchangeSessionForToken(params: {
   relayUrl: string
-  code: string
-  codeVerifier: string
-  redirectUri: string
+  session: string
 }): Promise<TokenExchangeResult> {
-  const endpoint = `${params.relayUrl.replace(/\/+$/, '')}/api/token`
+  const endpoint = `${params.relayUrl.replace(/\/+$/, '')}/api/oauth/session`
 
   let response: Response
   try {
     response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code: params.code,
-        code_verifier: params.codeVerifier,
-        redirect_uri: params.redirectUri,
-      }),
+      body: JSON.stringify({ session: params.session }),
     })
   } catch (error) {
     throw new AuthError('无法连接登录中转服务，请检查网络后重试。', error)
