@@ -1,0 +1,14 @@
+{
+  "id": "2026-demo-arena",
+  "title": "示例活动：第一赛季",
+  "subtitle": "这是一个演示用的活动，可以随意修改或删除。",
+  "description": "## 参与方式\n\n1. 登录本站（右上角）。\n2. 确认自己的账户已被邀请为该仓库的协作者。\n3. 在「我的作品」中点击「提交新作品」，选择本活动并上传封面。\n\n## 评分维度\n\n- 创意与完成度\n- 视觉表现\n- 可玩性 / 实用性\n\n> 活动页会以「封面图 + 标题 + 作者」的形式展示所有已提交的作品。\n",
+  "cover": "events/2026-demo-arena/cover.svg",
+  "status": "open",
+  "startAt": "2026-01-05T00:00:00.000Z",
+  "endAt": "2026-03-31T15:59:59.000Z",
+  "acceptSubmissions": true,
+  "createdBy": "your-github-username",
+  "createdAt": "2026-01-05T00:00:00.000Z",
+  "updatedAt": "2026-01-05T00:00:00.000Z"
+}

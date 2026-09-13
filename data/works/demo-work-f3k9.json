@@ -1,0 +1,19 @@
+{
+  "id": "demo-work-f3k9",
+  "eventId": "2026-demo-arena",
+  "title": "示例作品：像素星图",
+  "summary": "一条演示用的作品记录，展示卡片与详情页的排版效果。",
+  "description": "这是一件演示作品。正文支持 **Markdown**：\n\n- 列表\n- [链接](https://github.com)\n- 行内 `代码`\n\n把它删除、或替换成你自己的作品即可。\n",
+  "cover": "works/demo-work-f3k9/cover.svg",
+  "tags": ["示例", "像素画"],
+  "links": [
+    { "label": "GitHub", "url": "https://github.com" }
+  ],
+  "author": {
+    "login": "octocat",
+    "id": 583231,
+    "name": "The Octocat"
+  },
+  "createdAt": "2026-01-06T02:30:00.000Z",
+  "updatedAt": "2026-01-06T02:30:00.000Z"
+}

@@ -1,0 +1,9 @@
+{
+  "site": {
+    "name": "Hdssibal 比赛会场",
+    "tagline": "在线比赛会场：提交作品、展示作品、记录每一次活动。",
+    "description": "由 GitHub Pages 托管、以仓库为数据库的轻量比赛会场。"
+  },
+  "admins": [],
+  "activityLimit": 12
+}

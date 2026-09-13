@@ -1,0 +1,36 @@
+name: Validate data
+
+# data/ 是本站的数据库，格式错误会让整站渲染失败，所以在合并前先校验。
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/**'
+      - 'public/**'
+      - 'scripts/validate-data.mjs'
+      - '.github/workflows/validate-data.yml'
+  pull_request:
+    paths:
+      - 'data/**'
+      - 'public/**'
+      - 'scripts/validate-data.mjs'
+      - '.github/workflows/validate-data.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate data/
+        run: node scripts/validate-data.mjs
