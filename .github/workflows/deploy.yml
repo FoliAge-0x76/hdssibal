@@ -58,7 +58,7 @@ jobs:
           VITE_GITHUB_REPO: ${{ vars.VITE_GITHUB_REPO }}
 
       - name: Configure Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         with:
           # 首次部署时顺手把 Pages 打开并把 Source 设成 GitHub Actions，
           # 这样新仓库不必先手动去 Settings → Pages 点一次。
