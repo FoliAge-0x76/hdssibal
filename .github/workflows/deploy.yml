@@ -59,6 +59,12 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          # 首次部署时顺手把 Pages 打开并把 Source 设成 GitHub Actions，
+          # 这样新仓库不必先手动去 Settings → Pages 点一次。
+          # 若仓库策略不允许（令牌没有权限），这一步会失败并提示，
+          # 那时改回手动切换 Source 即可。
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
